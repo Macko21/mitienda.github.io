@@ -1836,6 +1836,9 @@ function enviarComprobanteWhatsApp(venta, monto) {
 
 function enviarComprobanteWhatsAppCliente(venta, monto, cliente) {
 
+  // Generar PDF automáticamente
+  generarComprobantesPago(venta, monto);
+
   // Normalizar número de teléfono
   const numeroWhatsApp = normalizarNumeroWhatsApp(cliente.telefono);
 
@@ -1848,39 +1851,17 @@ function enviarComprobanteWhatsAppCliente(venta, monto, cliente) {
     return;
   }
 
-  // Mostrar que se está generando el PDF
-  Swal.fire({
-    title: 'Generando PDF...',
-    icon: 'info',
-    allowOutsideClick: false,
-    didOpen: () => {
-      Swal.showLoading();
-    }
-  });
-
-  // Generar PDF automáticamente
-  generarComprobantesPago(venta, monto);
-
-  // Esperar 2 segundos a que se guarde y luego abrir WhatsApp
+  // Esperar un poco para que se descargue el PDF
   setTimeout(() => {
-    
-    Swal.close();
+    // Mensaje simple para abrir el chat
+    let mensaje = `Hola ${cliente.nombre}, te envío el comprobante de pago. El PDF se descargó automáticamente.`;
 
-    let mensaje = `Hola ${cliente.nombre}, te envío el comprobante de pago. ¡Gracias por tu compra!`;
-
+    // Abrir WhatsApp con el número del cliente
     window.open(
       `https://wa.me/${numeroWhatsApp}?text=${encodeURIComponent(mensaje)}`,
       '_blank'
     );
-
-    Swal.fire({
-      icon: 'success',
-      title: 'PDF guardado',
-      text: 'WhatsApp se abrió. Adjunta el PDF descargado y envía!',
-      timer: 3000,
-      showConfirmButton: false
-    });
-  }, 2000);
+  }, 1500);
 }
 
 function reenviirComprobanteHistorial(ventaId) {
@@ -2008,6 +1989,114 @@ function compartirPorWhatsApp() {
     `https://wa.me/?text=${encodeURIComponent(texto)}`,
     '_blank'
   );
+}
+
+// ===============================
+// EXPORTAR DATOS A ARCHIVO
+// ===============================
+
+function descargarDatos() {
+
+  const datosExportar = {
+    clientes: db.clientes,
+    productos: db.productos,
+    ventas: db.ventas,
+    pagos: db.pagos,
+    ventaCounter: db.ventaCounter,
+    fechaExporto: new Date().toLocaleString('es-AR')
+  };
+
+  const json = JSON.stringify(datosExportar, null, 2);
+  const blob = new Blob([json], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `datos-tienda-${Date.now()}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+
+  Swal.fire({
+    icon: 'success',
+    title: 'Datos descargados',
+    text: 'El archivo se guardó en descargas',
+    toast: true,
+    position: 'top-end',
+    timer: 2000,
+    showConfirmButton: false
+  });
+}
+
+function cargarDatos() {
+
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.json';
+
+  input.onchange = (e) => {
+
+    const file = e.target.files[0];
+
+    if (!file) return;
+
+    const reader = new FileReader();
+
+    reader.onload = (event) => {
+
+      try {
+
+        const datos = JSON.parse(event.target.result);
+
+        // Validar que tenga la estructura correcta
+        if (!datos.clientes || !datos.productos || !datos.ventas) {
+          throw new Error('Archivo inválido');
+        }
+
+        Swal.fire({
+          title: '¿Reemplazar todos los datos?',
+          text: 'Se reemplazarán clientes, productos, ventas y pagos',
+          icon: 'warning',
+          showCancelButton: true,
+          confirmButtonText: 'Sí, reemplazar',
+          cancelButtonText: 'Cancelar'
+        }).then(result => {
+
+          if (result.isConfirmed) {
+
+            db.clientes = datos.clientes || [];
+            db.productos = datos.productos || [];
+            db.ventas = datos.ventas || [];
+            db.pagos = datos.pagos || [];
+            db.ventaCounter = datos.ventaCounter || 0;
+
+            saveDB();
+
+            Swal.fire({
+              icon: 'success',
+              title: 'Datos cargados',
+              text: 'Los datos se han importado correctamente',
+              confirmButtonText: 'Recargar app'
+            }).then(() => {
+              location.reload();
+            });
+          }
+        });
+
+      } catch (error) {
+
+        Swal.fire({
+          icon: 'error',
+          title: 'Error al cargar',
+          text: 'El archivo no es válido o está corrupto'
+        });
+      }
+    };
+
+    reader.readAsText(file);
+  };
+
+  input.click();
 }
 
 // ===============================
