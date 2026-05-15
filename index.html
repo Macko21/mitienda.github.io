@@ -107,6 +107,9 @@
   </div>
 
   <script src="app.js"></script>
+  <!-- Firebase -->
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
   <script>
     // Registrar Service Worker
     if ('serviceWorker' in navigator) {
@@ -114,6 +117,27 @@
         .then(reg => console.log('Service Worker registrado'))
         .catch(err => console.log('Error registrando Service Worker:', err));
     }
+    // Configuración de Firebase
+const firebaseConfig = {
+  apiKey: "AIzaSyDhKvTuOOoPraf6fBntEaTbdIE8x2qNY90",
+  authDomain: "mi-tienda-682aa.firebaseapp.com",
+  databaseURL: "https://mi-tienda-682aa-default-rtdb.firebaseio.com",
+  projectId: "mi-tienda-682aa",
+  storageBucket: "mi-tienda-682aa.firebasestorage.app",
+  messagingSenderId: "160644788328",
+  appId: "1:160644788328:web:e2f7a1cec90b933a948bdd",
+  measurementId: "G-PZJZHEXB0V"
+};
+
+
+  // Inicializar Firebase
+  // Inicializar Firebase
+  firebase.initializeApp(firebaseConfig);
+  const database = firebase.database();
+  
+  window.firebaseDB = database;
+
+  console.log('Firebase inicializado correctamente');
   </script>
 </body>
 </html>
