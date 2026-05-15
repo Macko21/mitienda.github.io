@@ -16,12 +16,46 @@ let carrito = [];
 // GUARDAR DB
 // ===============================
 
+// REEMPLAZA esta función
 function saveDB() {
-  localStorage.setItem('clientes', JSON.stringify(db.clientes));
-  localStorage.setItem('productos', JSON.stringify(db.productos));
-  localStorage.setItem('ventas', JSON.stringify(db.ventas));
-  localStorage.setItem('pagos', JSON.stringify(db.pagos));
-  localStorage.setItem('ventaCounter', db.ventaCounter.toString());
+  if (window.firebaseDB) {
+    // Guardar en Firebase
+    window.firebaseDB.ref('tienda').set({
+      clientes: db.clientes,
+      productos: db.productos,
+      ventas: db.ventas,
+      pagos: db.pagos,
+      ventaCounter: db.ventaCounter,
+      ultimaActualizacion: new Date().toISOString()
+    }).catch(error => {
+      console.error('Error guardando en Firebase:', error);
+      // Fallback a localStorage si falla Firebase
+      localStorage.setItem('clientes', JSON.stringify(db.clientes));
+      localStorage.setItem('productos', JSON.stringify(db.productos));
+      localStorage.setItem('ventas', JSON.stringify(db.ventas));
+      localStorage.setItem('pagos', JSON.stringify(db.pagos));
+      localStorage.setItem('ventaCounter', db.ventaCounter.toString());
+    });
+  }
+}
+
+// AGREGAR esta función al inicio
+function cargarDatosFirebase() {
+  if (!window.firebaseDB) return;
+
+  window.firebaseDB.ref('tienda').on('value', (snapshot) => {
+    const datos = snapshot.val();
+    
+    if (datos) {
+      db.clientes = datos.clientes || [];
+      db.productos = datos.productos || [];
+      db.ventas = datos.ventas || [];
+      db.pagos = datos.pagos || [];
+      db.ventaCounter = datos.ventaCounter || 0;
+      
+      console.log('Datos sincronizados desde Firebase');
+    }
+  });
 }
 
 // ===============================
@@ -2113,5 +2147,10 @@ function cerrarModal() {
 // ===============================
 // INIT
 // ===============================
+
+// Cargar datos de Firebase si está disponible
+setTimeout(() => {
+  cargarDatosFirebase();
+}, 500);
 
 showTab(0);
