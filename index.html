@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mi Tienda - Sistema de Ventas</title>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.6.0/css/all.min.css" />
+
+  <link rel="stylesheet" href="styles.css" />
+</head>
+
+<body class="bg-gray-100">
+
+  <header class="mobile-header md:hidden">
+    <h1>Mi Tienda</h1>
+
+    <button onclick="toggleMenu()">
+      <i class="fa-solid fa-bars"></i>
+    </button>
+  </header>
+
+  <div class="layout">
+
+    <aside id="sidebar" class="sidebar sidebar-hidden">
+
+      <div class="sidebar-top">
+        <div>
+          <h2>Mi Tienda</h2>
+          <p>Sistema de Ventas</p>
+        </div>
+
+        <button class="close-menu md:hidden" onclick="toggleMenu()">
+          ✕
+        </button>
+      </div>
+
+      <nav class="menu">
+
+        <button id="tab0" class="tab-active" onclick="showTab(0)">
+          📊 Dashboard
+        </button>
+
+        <button id="tab1" onclick="showTab(1)">
+          👥 Clientes
+        </button>
+
+        <button id="tab2" onclick="showTab(2)">
+          📦 Artículos
+        </button>
+
+        <button id="tab3" onclick="showTab(3)">
+          🛍️ Catálogo
+        </button>
+
+        <button id="tab4" onclick="showTab(4)">
+          💰 Ventas
+        </button>
+
+        <button id="tab5" onclick="showTab(5)">
+          💵 Pagos
+        </button>
+
+        <button id="tab6" onclick="showTab(6)">
+          📊 Historial
+        </button>
+
+      </nav>
+
+    </aside>
+
+    <div id="overlay" class="overlay hidden" onclick="toggleMenu()"></div>
+
+    <main class="content">
+      <div id="content"></div>
+    </main>
+
+  </div>
+
+  <div id="modal" class="modal hidden">
+    <div id="modalContent" class="modal-box"></div>
+  </div>
+
+  <script src="app.js"></script>
+
+</body>
+</html>
