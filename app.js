@@ -13,10 +13,57 @@ let db = {
 let carrito = [];
 
 // ===============================
+// CACHE DE IMAGENES CON INDEXEDDB
+// ===============================
+
+let dbImagenes;
+
+function inicializarCacheImagenes() {
+  const request = indexedDB.open('TiendaImagenes', 1);
+
+  request.onerror = () => console.log('Error al abrir IndexedDB');
+  request.onsuccess = (e) => {
+    dbImagenes = e.target.result;
+  };
+
+  request.onupgradeneeded = (e) => {
+    const db = e.target.result;
+    if (!db.objectStoreNames.contains('imagenes')) {
+      db.createObjectStore('imagenes', { keyPath: 'id' });
+    }
+  };
+}
+
+function obtenerImagenCacheada(productoId) {
+  return new Promise((resolve) => {
+    if (!dbImagenes) {
+      resolve(null);
+      return;
+    }
+
+    const transaction = dbImagenes.transaction('imagenes', 'readonly');
+    const store = transaction.objectStore('imagenes');
+    const request = store.get(productoId);
+
+    request.onsuccess = () => resolve(request.result?.data || null);
+    request.onerror = () => resolve(null);
+  });
+}
+
+function guardarImagenEnCache(productoId, base64) {
+  if (!dbImagenes) return;
+
+  const transaction = dbImagenes.transaction('imagenes', 'readwrite');
+  const store = transaction.objectStore('imagenes');
+  store.put({ id: productoId, data: base64 });
+}
+
+inicializarCacheImagenes();
+
+// ===============================
 // GUARDAR DB
 // ===============================
 
-// REEMPLAZA esta función
 function saveDB() {
   if (window.firebaseDB) {
     // Guardar en Firebase
@@ -39,20 +86,19 @@ function saveDB() {
   }
 }
 
-// AGREGAR esta función al inicio
 function cargarDatosFirebase() {
   if (!window.firebaseDB) return;
 
   window.firebaseDB.ref('tienda').on('value', (snapshot) => {
     const datos = snapshot.val();
-    
+
     if (datos) {
       db.clientes = datos.clientes || [];
       db.productos = datos.productos || [];
       db.ventas = datos.ventas || [];
       db.pagos = datos.pagos || [];
       db.ventaCounter = datos.ventaCounter || 0;
-      
+
       console.log('Datos sincronizados desde Firebase');
     }
   });
@@ -481,10 +527,14 @@ function articulosHTML() {
 
         <div class="bg-white rounded-3xl overflow-hidden shadow-xl border border-gray-100">
 
-          <img
-            src="${p.foto || 'https://picsum.photos/500/300'}"
-            class="w-full h-52 object-cover"
-          >
+          <div class="w-full h-52 bg-gray-300 relative overflow-hidden">
+            <img
+              src="${p.foto || 'https://picsum.photos/500/300'}"
+              loading="lazy"
+              class="w-full h-52 object-cover"
+              onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22500%22 height=%22300%22%3E%3Crect fill=%22%23ccc%22 width=%22500%22 height=%22300%22/%3E%3C/svg%3E'"
+            >
+          </div>
 
           <div class="p-5">
 
@@ -771,6 +821,11 @@ function saveProductoFinal(id, nombre, foto) {
       )
   };
 
+  // Guardar imagen en cache si existe
+  if (producto.foto && producto.foto.startsWith('data:image')) {
+    guardarImagenEnCache(producto.id, producto.foto);
+  }
+
   if(id !== null) {
 
     const index =
@@ -861,10 +916,14 @@ function catalogoHTML() {
 
         <div class="bg-white rounded-3xl overflow-hidden shadow-xl">
 
-          <img
-            src="${p.foto || 'https://picsum.photos/500/300'}"
-            class="w-full h-64 object-cover"
-          >
+          <div class="w-full h-64 bg-gray-300 relative overflow-hidden">
+            <img
+              src="${p.foto || 'https://picsum.photos/500/300'}"
+              loading="lazy"
+              class="w-full h-64 object-cover"
+              onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22500%22 height=%22400%22%3E%3Crect fill=%22%23ccc%22 width=%22500%22 height=%22400%22/%3E%3C/svg%3E'"
+            >
+          </div>
 
           <div class="p-5">
 
@@ -930,42 +989,66 @@ async function exportarCatalogoPDF() {
   script.onload = function() {
 
     let html = `
-      <div style="font-family: Arial, sans-serif; padding: 20px; max-width: 1200px;">
-        <h1 style="text-align: center; color: #1f2937; margin-bottom: 10px;">📦 CATÁLOGO DE PRODUCTOS</h1>
-        <p style="text-align: center; color: #6b7280; margin-bottom: 30px; font-size: 12px;">
+      <div style="font-family: Arial, sans-serif; padding: 15px;">
+        <h1 style="text-align: center; color: #1f2937; margin-bottom: 5px; font-size: 24px;">CATALOGO DE PRODUCTOS</h1>
+        <p style="text-align: center; color: #6b7280; margin-bottom: 20px; font-size: 11px;">
           ${new Date().toLocaleDateString('es-AR')}
         </p>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
     `;
 
-    db.productos.forEach((p) => {
+    db.productos.forEach((p, index) => {
       html += `
-        <div style="page-break-inside: avoid; margin-bottom: 30px; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden;">
-          <img src="${p.foto || 'https://picsum.photos/500/300'}" style="width: 100%; height: 250px; object-fit: cover; display: block;">
-          <div style="padding: 15px; background: white;">
-            <h2 style="margin: 0 0 10px 0; color: #1f2937; font-size: 18px;">${p.nombre}</h2>
-            <div style="background: #f3f4f6; padding: 15px; border-radius: 6px; margin-bottom: 15px;">
-              <p style="margin: 0 0 5px 0; color: #6b7280; font-size: 12px;">Precio Contado</p>
-              <p style="margin: 0; color: #16a34a; font-size: 24px; font-weight: bold;">$${p.precioContado.toLocaleString()}</p>
-            </div>
-            <p style="margin: 0 0 12px 0; color: #6b7280; font-size: 13px; font-weight: bold;">Opciones de Financiación:</p>
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-              <div style="background: #f9fafb; padding: 10px; border-radius: 6px;"><p style="margin: 0 0 3px 0; color: #6b7280; font-size: 11px;">4 cuotas de</p><p style="margin: 0; color: #000; font-weight: bold; font-size: 14px;">$${p.preciosCuotas?.[4] || 0}</p></div>
-              <div style="background: #f9fafb; padding: 10px; border-radius: 6px;"><p style="margin: 0 0 3px 0; color: #6b7280; font-size: 11px;">6 cuotas de</p><p style="margin: 0; color: #000; font-weight: bold; font-size: 14px;">$${p.preciosCuotas?.[6] || 0}</p></div>
-              <div style="background: #f9fafb; padding: 10px; border-radius: 6px;"><p style="margin: 0 0 3px 0; color: #6b7280; font-size: 11px;">8 cuotas de</p><p style="margin: 0; color: #000; font-weight: bold; font-size: 14px;">$${p.preciosCuotas?.[8] || 0}</p></div>
-              <div style="background: #f9fafb; padding: 10px; border-radius: 6px;"><p style="margin: 0 0 3px 0; color: #6b7280; font-size: 11px;">12 cuotas de</p><p style="margin: 0; color: #000; font-weight: bold; font-size: 14px;">$${p.preciosCuotas?.[12] || 0}</p></div>
+        <div style="border: 1px solid #d1d5db; border-radius: 6px; padding: 10px; page-break-inside: avoid;">
+
+          <!-- Contenedor Imagen + Info -->
+          <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+
+            <!-- Imagen cuadrada -->
+            <img src="${p.foto || 'https://picsum.photos/300/300'}"
+                 style="width: 110px; height: 110px; object-fit: cover; border-radius: 4px; flex-shrink: 0;">
+
+            <!-- Información -->
+            <div style="flex: 1; display: flex; flex-direction: column;">
+              <h3 style="margin: 0 0 5px 0; color: #1f2937; font-size: 13px; font-weight: bold;">
+                ${p.nombre}
+              </h3>
+
+              <div style="background: #fef3c7; padding: 6px; border-radius: 3px; margin-bottom: 6px;">
+                <p style="margin: 0; color: #16a34a; font-size: 14px; font-weight: bold;">
+                  $${p.precioContado.toLocaleString()}
+                </p>
+                <p style="margin: 0; color: #6b7280; font-size: 10px;">Contado</p>
+              </div>
+
+              <p style="margin: 0; color: #6b7280; font-size: 10px; font-weight: bold;">Cuotas:</p>
+              <div style="font-size: 9px; color: #374151; line-height: 1.3;">
+                <p style="margin: 2px 0;">4x \$${p.preciosCuotas?.[4] || 0}</p>
+                <p style="margin: 2px 0;">6x \$${p.preciosCuotas?.[6] || 0}</p>
+                <p style="margin: 2px 0;">8x \$${p.preciosCuotas?.[8] || 0}</p>
+                <p style="margin: 2px 0;">12x \$${p.preciosCuotas?.[12] || 0}</p>
+              </div>
             </div>
           </div>
         </div>
       `;
     });
 
-    html += `<div style="margin-top: 40px; padding-top: 20px; border-top: 2px solid #e5e7eb; text-align: center; color: #6b7280; font-size: 12px;"><p style="margin: 0;">Precios sujetos a cambios sin previo aviso</p></div></div>`;
+    html += `
+        </div>
+
+        <div style="margin-top: 20px; padding-top: 10px; border-top: 1px solid #e5e7eb; text-align: center; color: #6b7280; font-size: 10px;">
+          <p style="margin: 0;">Precios sujetos a cambios sin previo aviso</p>
+        </div>
+      </div>
+    `;
 
     const element = document.createElement('div');
     element.innerHTML = html;
 
     const options = {
-      margin: 10,
+      margin: 8,
       filename: 'Catalogo-Productos.pdf',
       image: { type: 'jpeg', quality: 0.98 },
       html2canvas: { scale: 2 },
@@ -977,6 +1060,7 @@ async function exportarCatalogoPDF() {
     Swal.fire({
       icon: 'success',
       title: 'PDF generado',
+      text: '10 productos por página',
       toast: true,
       position: 'top-end',
       timer: 2000,
@@ -1585,7 +1669,7 @@ function generarComprobantesPago(venta, monto) {
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 30px; background: white;">
 
         <div style="text-align: center; margin-bottom: 30px; border-bottom: 3px solid #2563eb; padding-bottom: 20px;">
-          <h1 style="margin: 0; color: #2563eb; font-size: 28px;">📋 COMPROBANTE DE PAGO</h1>
+          <h1 style="margin: 0; color: #2563eb; font-size: 28px;">COMPROBANTE DE PAGO</h1>
           <p style="margin: 5px 0 0 0; color: #6b7280; font-size: 14px;">Transacción registrada</p>
         </div>
 
@@ -1629,7 +1713,7 @@ function generarComprobantesPago(venta, monto) {
 
         <div style="text-align: center; padding: 30px; border-top: 2px solid #e5e7eb; margin-top: 30px;">
           <h2 style="margin: 0 0 10px 0; color: #2563eb; font-size: 20px; font-weight: bold;">
-            ¡Muchas gracias por tu compra!
+            Muchas gracias por tu compra!
           </h2>
           <p style="margin: 0; color: #6b7280; font-size: 14px;">
             Esperamos verte pronto
@@ -1673,7 +1757,7 @@ function historialVentasHTML() {
     return `
       <div class="text-center py-20">
         <h1 class="text-3xl font-black text-gray-800 mb-4">
-          📊 Historial de Ventas
+          Historial de Ventas
         </h1>
         <p class="text-gray-500 mb-8">
           Las ventas completadas aparecerán aquí
@@ -1689,7 +1773,7 @@ function historialVentasHTML() {
   return `
     <div class="mb-8">
       <h1 class="text-3xl font-black text-gray-800">
-        📊 Historial de Ventas
+        Historial de Ventas
       </h1>
       <p class="text-gray-500 mt-2">
         Ventas completadas y pagadas
@@ -1792,33 +1876,26 @@ function normalizarNumeroWhatsApp(telefono) {
 
   if (!telefono) return null;
 
-  // Remover espacios, guiones y paréntesis
   let numero = telefono.replace(/[\s\-()]/g, '');
 
-  // Si ya tiene el +, devolverlo tal cual
   if (numero.startsWith('+')) {
     return numero;
   }
 
-  // Si empieza con 54 (código de Argentina)
   if (numero.startsWith('54')) {
-    // Si tiene 54 al inicio pero sin +, agregarlo
     if (numero.length > 2) {
       return '+' + numero;
     }
   }
 
-  // Si empieza con 9 (formato argentino: 9 11 1234567)
   if (numero.startsWith('9') && numero.length > 9) {
     return '+54' + numero;
   }
 
-  // Si no tiene el 9 pero tiene 11 dígitos (formato local)
   if (!numero.startsWith('9') && numero.length === 10) {
     return '+549' + numero;
   }
 
-  // Fallback: agregar +54 al inicio
   return '+54' + numero;
 }
 
@@ -1870,10 +1947,8 @@ function enviarComprobanteWhatsApp(venta, monto) {
 
 function enviarComprobanteWhatsAppCliente(venta, monto, cliente) {
 
-  // Generar PDF automáticamente
   generarComprobantesPago(venta, monto);
 
-  // Normalizar número de teléfono
   const numeroWhatsApp = normalizarNumeroWhatsApp(cliente.telefono);
 
   if (!numeroWhatsApp) {
@@ -1885,12 +1960,9 @@ function enviarComprobanteWhatsAppCliente(venta, monto, cliente) {
     return;
   }
 
-  // Esperar un poco para que se descargue el PDF
   setTimeout(() => {
-    // Mensaje simple para abrir el chat
     let mensaje = `Hola ${cliente.nombre}, te envío el comprobante de pago. El PDF se descargó automáticamente.`;
 
-    // Abrir WhatsApp con el número del cliente
     window.open(
       `https://wa.me/${numeroWhatsApp}?text=${encodeURIComponent(mensaje)}`,
       '_blank'
@@ -1951,7 +2023,6 @@ function borrarPago(ventaId) {
 
       if (venta) {
 
-        // Restaurar stock
         venta.items.forEach(item => {
           const producto = db.productos.find(p => p.nombre === item.nombre);
           if (producto) {
@@ -1959,14 +2030,12 @@ function borrarPago(ventaId) {
           }
         });
 
-        // Restaurar compras del cliente
         const cliente = db.clientes.find(c => c.nombre === venta.clienteNombre);
         if (cliente) {
           cliente.compras = (cliente.compras || 0) - venta.total;
           if (cliente.compras < 0) cliente.compras = 0;
         }
 
-        // Eliminar venta
         db.ventas = db.ventas.filter(v => v.id != ventaId);
 
         saveDB();
@@ -2082,7 +2151,6 @@ function cargarDatos() {
 
         const datos = JSON.parse(event.target.result);
 
-        // Validar que tenga la estructura correcta
         if (!datos.clientes || !datos.productos || !datos.ventas) {
           throw new Error('Archivo inválido');
         }
@@ -2148,7 +2216,6 @@ function cerrarModal() {
 // INIT
 // ===============================
 
-// Cargar datos de Firebase si está disponible
 setTimeout(() => {
   cargarDatosFirebase();
 }, 500);
