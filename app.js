@@ -2213,11 +2213,74 @@ function cerrarModal() {
 }
 
 // ===============================
-// INIT
+// INIT - ESPERAR FIREBASE
 // ===============================
 
-setTimeout(() => {
-  cargarDatosFirebase();
-}, 500);
+let datosListos = false;
 
-showTab(0);
+function esperarDatosFirebase() {
+  return new Promise((resolve) => {
+    if (!window.firebaseDB) {
+      resolve();
+      return;
+    }
+
+    // Escuchar una sola vez para saber cuando llegaron los datos
+    window.firebaseDB.ref('tienda').once('value', (snapshot) => {
+      const datos = snapshot.val();
+      
+      if (datos) {
+        db.clientes = datos.clientes || [];
+        db.productos = datos.productos || [];
+        db.ventas = datos.ventas || [];
+        db.pagos = datos.pagos || [];
+        db.ventaCounter = datos.ventaCounter || 0;
+      }
+      
+      datosListos = true;
+      
+      // También activar el listener en tiempo real para cambios futuros
+      cargarDatosFirebase();
+      
+      resolve();
+    });
+
+    // Timeout de 3 segundos por si Firebase tarda mucho
+    setTimeout(() => {
+      if (!datosListos) {
+        datosListos = true;
+        cargarDatosFirebase();
+        resolve();
+      }
+    }, 3000);
+  });
+}
+
+// Mostrar contenido solo cuando datos estén listos
+async function iniciarApp() {
+  // Mostrar loading
+  const content = document.getElementById('content');
+  if (content) {
+    content.innerHTML = `
+      <div class="flex items-center justify-center min-h-screen">
+        <div class="text-center">
+          <div class="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p class="text-gray-600 font-semibold">Cargando datos...</p>
+        </div>
+      </div>
+    `;
+  }
+
+  // Esperar a que lleguen los datos de Firebase
+  await esperarDatosFirebase();
+
+  // Mostrar la app
+  showTab(0);
+}
+
+// Ejecutar cuando la página carga
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', iniciarApp);
+} else {
+  iniciarApp();
+}
