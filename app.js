@@ -1138,7 +1138,7 @@ function nuevaVentaHTML() {
         <select
           id="cuotasSelect"
           onchange="calcularTotal()"
-          class="w-full p-4 border rounded-2xl"
+          class="w-full p-4 border rounded-2xl mb-4"
         >
           <option value="1">Contado</option>
           <option value="4">4 cuotas</option>
@@ -1146,6 +1146,80 @@ function nuevaVentaHTML() {
           <option value="8">8 cuotas</option>
           <option value="12">12 cuotas</option>
         </select>
+
+        <div class="mb-4">
+
+          <label class="font-bold text-gray-700 block mb-2">
+            Entrega inicial
+          </label>
+
+          <input
+            id="entregaInput"
+            type="number"
+            min="0"
+            value="0"
+            oninput="calcularTotal()"
+            placeholder="0"
+            class="w-full p-4 border rounded-2xl"
+          >
+
+        </div>
+
+        <div class="bg-gray-100 rounded-3xl p-5 mt-6 space-y-4">
+
+          <div class="flex justify-between">
+            <span class="text-gray-500">
+              Total productos
+            </span>
+
+            <span
+              id="totalProductos"
+              class="font-black"
+            >
+              $0
+            </span>
+          </div>
+
+          <div class="flex justify-between">
+            <span class="text-gray-500">
+              Entrega
+            </span>
+
+            <span
+              id="entregaMostrada"
+              class="font-black text-blue-600"
+            >
+              $0
+            </span>
+          </div>
+
+          <div class="flex justify-between">
+            <span class="text-gray-500">
+              Saldo restante
+            </span>
+
+            <span
+              id="saldoRestante"
+              class="font-black text-red-600"
+            >
+              $0
+            </span>
+          </div>
+
+          <div class="flex justify-between border-t pt-4">
+            <span class="text-gray-700 font-bold">
+              Pago por cuota
+            </span>
+
+            <span
+              id="valorCuota"
+              class="font-black text-green-600 text-xl"
+            >
+              $0
+            </span>
+          </div>
+
+        </div>
 
         <div class="mt-8">
 
@@ -1290,6 +1364,9 @@ function calcularTotal() {
   const cuotas =
     Number(document.getElementById('cuotasSelect')?.value || 1);
 
+  const entrega =
+    Number(document.getElementById('entregaInput')?.value || 0);
+
   let total = 0;
 
   carrito.forEach(item => {
@@ -1309,6 +1386,20 @@ function calcularTotal() {
     total += precio * item.cantidad;
   });
 
+  let saldoRestante = total - entrega;
+
+  if (saldoRestante < 0) {
+    saldoRestante = 0;
+  }
+
+  let valorCuota = 0;
+
+  if (cuotas > 1) {
+    valorCuota = Math.ceil(saldoRestante / cuotas);
+  } else {
+    valorCuota = saldoRestante;
+  }
+
   const totalFinal =
     document.getElementById('totalFinal');
 
@@ -1316,6 +1407,41 @@ function calcularTotal() {
 
     totalFinal.innerHTML =
       '$' + total.toLocaleString();
+  }
+
+  const totalProductos =
+    document.getElementById('totalProductos');
+
+  if (totalProductos) {
+    totalProductos.innerHTML =
+      '$' + total.toLocaleString();
+  }
+
+  const entregaMostrada =
+    document.getElementById('entregaMostrada');
+
+  if (entregaMostrada) {
+    entregaMostrada.innerHTML =
+      '$' + entrega.toLocaleString();
+  }
+
+  const saldo =
+    document.getElementById('saldoRestante');
+
+  if (saldo) {
+    saldo.innerHTML =
+      '$' + saldoRestante.toLocaleString();
+  }
+
+  const cuota =
+    document.getElementById('valorCuota');
+
+  if (cuota) {
+
+    cuota.innerHTML =
+      cuotas === 1
+        ? '$' + saldoRestante.toLocaleString()
+        : '$' + valorCuota.toLocaleString();
   }
 }
 
@@ -1350,6 +1476,11 @@ function finalizarVenta() {
       document.getElementById('cuotasSelect').value
     );
 
+  const entrega =
+    Number(
+      document.getElementById('entregaInput').value || 0
+    );
+
   let total = 0;
 
   const itemsVenta = [];
@@ -1380,6 +1511,17 @@ function finalizarVenta() {
 
   });
 
+  let saldoRestante = total - entrega;
+
+  if (saldoRestante < 0) {
+    saldoRestante = 0;
+  }
+
+  const valorCuota =
+    cuotas > 1
+      ? Math.ceil(saldoRestante / cuotas)
+      : saldoRestante;
+
   db.ventaCounter++;
 
   const venta = {
@@ -1394,13 +1536,19 @@ function finalizarVenta() {
 
     total: total,
 
+    entrega: entrega,
+
+    saldoOriginal: saldoRestante,
+
+    valorCuota: valorCuota,
+
     cuotasTotales: cuotas,
 
-    cuotasPagadas: 0,
+    cuotasPagadas: cuotas === 1 ? 1 : 0,
 
-    saldo: total,
+    saldo: saldoRestante,
 
-    pagado: cuotas === 1 ? total : 0
+    pagado: entrega
 
   };
 
@@ -1429,10 +1577,31 @@ function finalizarVenta() {
   Swal.fire({
     icon: 'success',
     title: 'Venta registrada correctamente',
-    toast: true,
-    position: 'top-end',
-    timer: 2500,
-    showConfirmButton: false
+    html: `
+      <div style="text-align:left">
+
+        <p>
+          <b>Total:</b>
+          $${total.toLocaleString()}
+        </p>
+
+        <p>
+          <b>Entrega:</b>
+          $${entrega.toLocaleString()}
+        </p>
+
+        <p>
+          <b>Saldo:</b>
+          $${saldoRestante.toLocaleString()}
+        </p>
+
+        <p>
+          <b>${cuotas} cuotas de:</b>
+          $${valorCuota.toLocaleString()}
+        </p>
+
+      </div>
+    `
   });
 
   showTab(5);
@@ -1523,6 +1692,22 @@ function pagosHTML() {
                   ${v.clienteNombre}
                 </h3>
 
+                <div class="mt-2 flex flex-wrap gap-2">
+
+                  <span class="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-xs font-bold">
+                    Total: $${v.total.toLocaleString()}
+                  </span>
+
+                  <span class="bg-green-100 text-green-700 px-3 py-1 rounded-full text-xs font-bold">
+                    Entrega: $${(v.entrega || 0).toLocaleString()}
+                  </span>
+
+                  <span class="bg-orange-100 text-orange-700 px-3 py-1 rounded-full text-xs font-bold">
+                    Cuota: $${(v.valorCuota || 0).toLocaleString()}
+                  </span>
+
+                </div>
+
                 <div class="mt-3 bg-gray-50 rounded-2xl p-3">
                   ${productos}
                 </div>
@@ -1543,12 +1728,30 @@ function pagosHTML() {
 
             </div>
 
-            <button
-              onclick="registrarPago(${v.id})"
-              class="mt-5 w-full bg-green-600 hover:bg-green-700 text-white py-4 rounded-2xl font-semibold transition"
-            >
-              Registrar Pago
-            </button>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mt-5">
+
+              <button
+                onclick="registrarPago(${v.id})"
+                class="bg-green-600 hover:bg-green-700 text-white py-4 rounded-2xl font-semibold transition"
+              >
+                💵 Registrar Pago
+              </button>
+
+              <button
+                onclick="cancelarUltimoPago(${v.id})"
+                class="bg-yellow-500 hover:bg-yellow-600 text-white py-4 rounded-2xl font-semibold transition"
+              >
+                ↩️ Cancelar Último Pago
+              </button>
+
+              <button
+                onclick="eliminarVentaPendiente(${v.id})"
+                class="bg-red-600 hover:bg-red-700 text-white py-4 rounded-2xl font-semibold transition"
+              >
+                🗑️ Eliminar Venta
+              </button>
+
+            </div>
 
           </div>
 
@@ -1568,31 +1771,100 @@ function registrarPago(id) {
     db.ventas.find(v => v.id == id);
 
   const monto =
-    Math.round(
-      venta.total / venta.cuotasTotales
+    venta.valorCuota || Math.round(
+      venta.saldo / (
+        venta.cuotasTotales - venta.cuotasPagadas
+      )
     );
 
   Swal.fire({
-    title:`Registrar pago de $${monto}?`,
-    icon:'question',
-    showCancelButton:true
+    title: 'Registrar pago',
+    html: `
+
+      <div style="text-align:left">
+
+        <p style="margin-bottom:10px;">
+          Monto sugerido:
+          <b>$${monto.toLocaleString()}</b>
+        </p>
+
+        <input
+          id="montoPagoInput"
+          type="number"
+          value="${monto}"
+          class="swal2-input"
+          placeholder="Monto"
+        >
+
+      </div>
+
+    `,
+    showCancelButton: true,
+    confirmButtonText: 'Registrar',
+    cancelButtonText: 'Cancelar',
+    preConfirm: () => {
+
+      const montoIngresado =
+        Number(
+          document.getElementById('montoPagoInput').value
+        );
+
+      if (!montoIngresado || montoIngresado <= 0) {
+
+        Swal.showValidationMessage(
+          'Ingrese un monto válido'
+        );
+
+        return false;
+      }
+
+      return montoIngresado;
+    }
+
   }).then(r => {
 
     if(r.isConfirmed) {
 
-      venta.saldo -= monto;
+      const montoPagado = r.value;
 
-      venta.cuotasPagadas++;
+      venta.saldo -= montoPagado;
 
-      if(venta.saldo < 0) {
+      if (venta.saldo < 0) {
         venta.saldo = 0;
+      }
+
+      venta.pagado =
+        (venta.pagado || 0) + montoPagado;
+
+      venta.historialPagos =
+        venta.historialPagos || [];
+
+      venta.historialPagos.push({
+        fecha: new Date().toISOString(),
+        monto: montoPagado
+      });
+
+      if (venta.cuotasTotales > 1) {
+
+        venta.cuotasPagadas =
+          venta.historialPagos.length;
+
+      } else {
+
+        venta.cuotasPagadas = 1;
       }
 
       saveDB();
 
-      generarComprobantesPago(venta, monto);
+      generarComprobantesPago(
+        venta,
+        montoPagado
+      );
 
-      const cliente = db.clientes.find(c => c.nombre === venta.clienteNombre);
+      const cliente =
+        db.clientes.find(
+          c => c.nombre === venta.clienteNombre
+        );
 
       Swal.fire({
         title: 'Pago registrado',
@@ -1602,10 +1874,19 @@ function registrarPago(id) {
         confirmButtonText: 'Enviar',
         cancelButtonText: 'No ahora'
       }).then(result => {
+
         if (result.isConfirmed) {
+
           if (cliente && cliente.telefono) {
-            enviarComprobanteWhatsAppCliente(venta, monto, cliente);
+
+            enviarComprobanteWhatsAppCliente(
+              venta,
+              montoPagado,
+              cliente
+            );
+
           } else {
+
             Swal.fire({
               icon: 'warning',
               title: 'Sin número de teléfono',
@@ -1613,12 +1894,153 @@ function registrarPago(id) {
             });
           }
         }
+
         showTab(5);
+
       });
     }
   });
 }
 
+function cancelarUltimoPago(id) {
+
+  const venta =
+    db.ventas.find(v => v.id == id);
+
+  if (
+    !venta.historialPagos ||
+    venta.historialPagos.length === 0
+  ) {
+
+    return Swal.fire({
+      icon: 'warning',
+      title: 'No hay pagos registrados'
+    });
+  }
+
+  const ultimoPago =
+    venta.historialPagos[
+      venta.historialPagos.length - 1
+    ];
+
+  Swal.fire({
+    title: '¿Cancelar último pago?',
+    html: `
+      <p>
+        Se devolverán
+        <b>$${ultimoPago.monto.toLocaleString()}</b>
+      </p>
+    `,
+    icon: 'warning',
+    showCancelButton: true,
+    confirmButtonText: 'Sí, cancelar',
+    cancelButtonText: 'No'
+  }).then(r => {
+
+    if (r.isConfirmed) {
+
+      venta.saldo += ultimoPago.monto;
+
+      venta.pagado -= ultimoPago.monto;
+
+      venta.historialPagos.pop();
+
+      if (venta.cuotasTotales > 1) {
+
+        venta.cuotasPagadas =
+          venta.historialPagos.length;
+
+      } else {
+
+        venta.cuotasPagadas = 0;
+      }
+
+      saveDB();
+
+      Swal.fire({
+        icon: 'success',
+        title: 'Pago cancelado',
+        toast: true,
+        position: 'top-end',
+        timer: 2000,
+        showConfirmButton: false
+      });
+
+      showTab(5);
+    }
+  });
+}
+
+function eliminarVentaPendiente(id) {
+
+  Swal.fire({
+    title: '¿Eliminar venta?',
+    html: `
+      <p>
+        Se restaurará el stock
+        y se borrarán todos los pagos.
+      </p>
+    `,
+    icon: 'warning',
+    showCancelButton: true,
+    confirmButtonText: 'Eliminar',
+    cancelButtonText: 'Cancelar',
+    confirmButtonColor: '#ef4444'
+  }).then(r => {
+
+    if (r.isConfirmed) {
+
+      const venta =
+        db.ventas.find(v => v.id == id);
+
+      if (!venta) return;
+
+      venta.items.forEach(item => {
+
+        const producto =
+          db.productos.find(
+            p => p.nombre === item.nombre
+          );
+
+        if (producto) {
+
+          producto.stock += item.cantidad;
+        }
+
+      });
+
+      const cliente =
+        db.clientes.find(
+          c => c.nombre === venta.clienteNombre
+        );
+
+      if (cliente) {
+
+        cliente.compras -= venta.total;
+
+        if (cliente.compras < 0) {
+          cliente.compras = 0;
+        }
+      }
+
+      db.ventas =
+        db.ventas.filter(v => v.id != id);
+
+      saveDB();
+
+      Swal.fire({
+        icon: 'success',
+        title: 'Venta eliminada',
+        toast: true,
+        position: 'top-end',
+        timer: 2000,
+        showConfirmButton: false
+      });
+
+      showTab(5);
+    }
+  });
+}
 // ===============================
 // GENERAR COMPROBANTE DE PAGO
 // ===============================
