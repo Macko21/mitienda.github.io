@@ -3,34 +3,192 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="theme-color" content="#2563eb" />
+  <meta name="theme-color" content="#7c3aed" />
   <meta name="description" content="Sistema de gestión de ventas, clientes y productos" />
+  <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="apple-mobile-web-app-title" content="Mi Tienda" />
-  
-  <title>Mi Tienda - Sistema de Ventas</title>
+  <meta name="apple-mobile-web-app-title" content="OneShop" />
+  <meta name="application-name" content="OneShop" />
 
-  <!-- Manifest PWA -->
+  <title>OneShop - Sistema de Ventas</title>
+
   <link rel="manifest" href="./manifest.json" />
-  
-  <!-- Apple Touch Icon -->
-  <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'><rect fill='%232563eb' width='180' height='180'/><text x='90' y='120' font-size='70' font-weight='bold' text-anchor='middle' fill='white' font-family='Arial'>MT</text></svg>" />
+  <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
+  <link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png" />
+  <link rel="icon" type="image/png" sizes="512x512" href="./icon-512.png" />
 
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.6.0/css/all.min.css" />
-
   <link rel="stylesheet" href="styles.css" />
+
+  <style>
+    /* ── SPLASH ─────────────────────────────────────── */
+    #splash {
+      position: fixed; inset: 0; z-index: 9999;
+      background: #fff;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 28px;
+      transition: opacity .4s;
+    }
+    #splash img {
+      width: 320px; max-width: 65vw;
+      object-fit: contain;
+      filter: drop-shadow(0 4px 24px rgba(124,58,237,.35));
+      animation: splashFloat 2s ease-in-out infinite alternate;
+    }
+    @keyframes splashFloat {
+      from { transform: translateY(0); }
+      to   { transform: translateY(-8px); }
+    }
+    #splash .dot-loader {
+      display: flex; gap: 8px;
+    }
+    #splash .dot-loader span {
+      width: 10px; height: 10px; border-radius: 50%;
+      background: #7c3aed;
+      animation: dotBounce .7s ease-in-out infinite alternate;
+    }
+    #splash .dot-loader span:nth-child(2) { animation-delay: .15s; }
+    #splash .dot-loader span:nth-child(3) { animation-delay: .3s; }
+    @keyframes dotBounce {
+      from { transform: translateY(0); opacity: .4; }
+      to   { transform: translateY(-10px); opacity: 1; }
+    }
+
+    /* ── BANNER INSTALAR ────────────────────────────── */
+    #installBanner {
+      position: fixed; bottom: 0; left: 0; right: 0; z-index: 8000;
+      background: #fff;
+      border-top: 2px solid #ede9fe;
+      padding: 14px 18px;
+      display: flex; align-items: center; gap: 12px;
+      box-shadow: 0 -4px 24px rgba(124,58,237,.15);
+      transform: translateY(100%);
+      transition: transform .35s cubic-bezier(.34,1.56,.64,1);
+    }
+    #installBanner.show { transform: translateY(0); }
+    #installBanner .ib-icon {
+      width: 46px; height: 46px; border-radius: 12px;
+      overflow: hidden; flex-shrink: 0;
+    }
+    #installBanner .ib-icon img { width: 100%; height: 100%; object-fit: cover; }
+    #installBanner .ib-text { flex: 1; }
+    #installBanner .ib-text strong { display: block; color: #1f2937; font-size: 14px; font-weight: 800; }
+    #installBanner .ib-text span { color: #6b7280; font-size: 12px; }
+    #installBanner .ib-install {
+      background: linear-gradient(135deg, #7c3aed, #a78bfa);
+      color: #fff; border: none; border-radius: 10px;
+      padding: 10px 18px; font-weight: 800; font-size: 13px;
+      cursor: pointer; white-space: nowrap;
+      box-shadow: 0 4px 14px rgba(124,58,237,.4);
+    }
+    #installBanner .ib-close {
+      background: none; border: none; color: #9ca3af;
+      cursor: pointer; font-size: 20px; padding: 4px 6px; line-height: 1;
+    }
+
+    /* ── HEADER MOBILE ──────────────────────────────── */
+    .mobile-header {
+      background: #fff !important;
+      border-bottom: 1px solid #ede9fe;
+      box-shadow: 0 2px 12px rgba(124,58,237,.08) !important;
+    }
+    .mobile-header .header-logo-wrap {
+      display: flex; align-items: center;
+    }
+    .mobile-header .header-logo-wrap img {
+      height: 30px; object-fit: contain;
+      filter: drop-shadow(0 0 6px rgba(124,58,237,.3));
+    }
+    .mobile-header button {
+      background: #ede9fe !important;
+      color: #7c3aed !important;
+      border-radius: 14px !important;
+    }
+
+    /* ── SIDEBAR BLANCO ─────────────────────────────── */
+    .sidebar {
+      background: #ffffff !important;
+      border-right: 1px solid #ede9fe;
+      box-shadow: 2px 0 20px rgba(124,58,237,.08) !important;
+    }
+    .sidebar-top {
+      background: #fff !important;
+      border-bottom: 1px solid #ede9fe;
+      padding: 20px 20px 16px;
+    }
+    .sidebar-top .sidebar-logo-img {
+      height: 64px; object-fit: contain;
+      filter: drop-shadow(0 0 8px rgba(124,58,237,.25));
+    }
+    .close-menu {
+      background: #f3f0ff !important;
+      color: #7c3aed !important;
+    }
+
+    /* Botones del menú — texto oscuro sobre fondo blanco */
+    .menu button {
+      color: #374151 !important;
+      font-weight: 600 !important;
+    }
+    .menu button:hover:not(.tab-active) {
+      background: #f5f3ff !important;
+      color: #7c3aed !important;
+    }
+
+    /* Tab activo violeta */
+    .tab-active {
+      background: linear-gradient(135deg, #7c3aed, #a78bfa) !important;
+      color: #fff !important;
+      box-shadow: 0 4px 16px rgba(124,58,237,.35) !important;
+    }
+
+    /* Botones descargar/cargar datos */
+    .sidebar-actions-wrap {
+      border-top: 1px solid #ede9fe;
+      margin-top: 10px;
+      padding-top: 10px;
+    }
+    .sidebar-actions-wrap button {
+      font-size: 13px !important;
+    }
+
+    /* Scrollbar sutil */
+    ::-webkit-scrollbar { width: 5px; }
+    ::-webkit-scrollbar-thumb { background: #ddd6fe; border-radius: 3px; }
+  </style>
 </head>
 
 <body class="bg-gray-100">
 
-  <header class="mobile-header md:hidden">
-    <h1>Mi Tienda</h1>
+  <!-- SPLASH -->
+  <div id="splash">
+    <img src="./logo.png" alt="OneShop" />
+    <div class="dot-loader">
+      <span></span><span></span><span></span>
+    </div>
+  </div>
 
+  <!-- BANNER INSTALAR -->
+  <div id="installBanner">
+    <div class="ib-icon"><img src="./icon-192.png" alt="OneShop" /></div>
+    <div class="ib-text">
+      <strong>Instalá OneShop</strong>
+      <span>Accedé desde tu pantalla de inicio</span>
+    </div>
+    <button class="ib-install" onclick="instalarPWA()">Instalar</button>
+    <button class="ib-close" onclick="ocultarBanner()">✕</button>
+  </div>
+
+  <!-- HEADER MOBILE -->
+  <header class="mobile-header md:hidden">
+    <div class="header-logo-wrap">
+      <img src="./logo.png" alt="OneShop" />
+    </div>
     <button onclick="toggleMenu()">
       <i class="fa-solid fa-bars"></i>
     </button>
@@ -41,55 +199,31 @@
     <aside id="sidebar" class="sidebar sidebar-hidden">
 
       <div class="sidebar-top">
-        <div>
-          <h2>Mi Tienda</h2>
-          <p>Sistema de Ventas</p>
-        </div>
-
-        <button class="close-menu md:hidden" onclick="toggleMenu()">
-          ✕
-        </button>
+        <img src="./logo.png" alt="OneShop" class="sidebar-logo-img" />
+        <button class="close-menu md:hidden" onclick="toggleMenu()">✕</button>
       </div>
 
       <nav class="menu">
+        <button id="tab0" class="tab-active" onclick="showTab(0)">📊 Dashboard</button>
+        <button id="tab1" onclick="showTab(1)">👥 Clientes</button>
+        <button id="tab2" onclick="showTab(2)">📦 Artículos</button>
+        <button id="tab3" onclick="showTab(3)">🛍️ Catálogo</button>
+        <button id="tab4" onclick="showTab(4)">💰 Ventas</button>
+        <button id="tab5" onclick="showTab(5)">💵 Pagos</button>
+        <button id="tab6" onclick="showTab(6)">📊 Historial</button>
 
-        <button id="tab0" class="tab-active" onclick="showTab(0)">
-          📊 Dashboard
-        </button>
-
-        <button id="tab1" onclick="showTab(1)">
-          👥 Clientes
-        </button>
-
-        <button id="tab2" onclick="showTab(2)">
-          📦 Artículos
-        </button>
-
-        <button id="tab3" onclick="showTab(3)">
-          🛍️ Catálogo
-        </button>
-
-        <button id="tab4" onclick="showTab(4)">
-          💰 Ventas
-        </button>
-
-        <button id="tab5" onclick="showTab(5)">
-          💵 Pagos
-        </button>
-
-        <button id="tab6" onclick="showTab(6)">
-          📊 Historial
-        </button>
-
-        <div style="border-top: 1px solid #eee; margin-top: 10px; padding-top: 10px;">
-    <button onclick="descargarDatos()" style="width: 100%; background: #10b981; color: white; border: none; padding: 10px; border-radius: 10px; margin-bottom: 5px; cursor: pointer; font-weight: bold;">
-      💾 Descargar datos
-    </button>
-    <button onclick="cargarDatos()" style="width: 100%; background: #3b82f6; color: white; border: none; padding: 10px; border-radius: 10px; cursor: pointer; font-weight: bold;">
-      📂 Cargar datos
-    </button>
-  </div>
-  
+        <div class="sidebar-actions-wrap">
+          <button
+            onclick="descargarDatos()"
+            style="width:100%;background:linear-gradient(135deg,#059669,#10b981);color:white;border:none;padding:10px;border-radius:10px;margin-bottom:6px;cursor:pointer;font-weight:bold;">
+            💾 Descargar datos
+          </button>
+          <button
+            onclick="cargarDatos()"
+            style="width:100%;background:linear-gradient(135deg,#2563eb,#3b82f6);color:white;border:none;padding:10px;border-radius:10px;cursor:pointer;font-weight:bold;">
+            📂 Cargar datos
+          </button>
+        </div>
       </nav>
 
     </aside>
@@ -106,38 +240,64 @@
     <div id="modalContent" class="modal-box"></div>
   </div>
 
-  <script src="app.js"></script>
   <!-- Firebase -->
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+
+  <script src="app.js"></script>
+
   <script>
-    // Registrar Service Worker
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('./service-worker.js')
-        .then(reg => console.log('Service Worker registrado'))
-        .catch(err => console.log('Error registrando Service Worker:', err));
+    // ── Firebase ──────────────────────────────────────
+    const firebaseConfig = {
+      apiKey: "AIzaSyDhKvTuOOoPraf6fBntEaTbdIE8x2qNY90",
+      authDomain: "mi-tienda-682aa.firebaseapp.com",
+      databaseURL: "https://mi-tienda-682aa-default-rtdb.firebaseio.com",
+      projectId: "mi-tienda-682aa",
+      storageBucket: "mi-tienda-682aa.firebasestorage.app",
+      messagingSenderId: "160644788328",
+      appId: "1:160644788328:web:e2f7a1cec90b933a948bdd"
+    };
+    firebase.initializeApp(firebaseConfig);
+    window.firebaseDB = firebase.database();
+
+    // ── Splash ────────────────────────────────────────
+    function ocultarSplash() {
+      const s = document.getElementById('splash');
+      if (s) { s.style.opacity = '0'; setTimeout(() => s.remove(), 420); }
     }
-    // Configuración de Firebase
-const firebaseConfig = {
-  apiKey: "AIzaSyDhKvTuOOoPraf6fBntEaTbdIE8x2qNY90",
-  authDomain: "mi-tienda-682aa.firebaseapp.com",
-  databaseURL: "https://mi-tienda-682aa-default-rtdb.firebaseio.com",
-  projectId: "mi-tienda-682aa",
-  storageBucket: "mi-tienda-682aa.firebasestorage.app",
-  messagingSenderId: "160644788328",
-  appId: "1:160644788328:web:e2f7a1cec90b933a948bdd",
-  measurementId: "G-PZJZHEXB0V"
-};
+    setTimeout(ocultarSplash, 4500);   // fallback
+    window._ocultarSplash = ocultarSplash;
 
+    // ── Service Worker ────────────────────────────────
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./service-worker.js')
+          .then(() => console.log('✅ SW registrado'))
+          .catch(e => console.warn('SW error:', e));
+      });
+    }
 
-  // Inicializar Firebase
-  // Inicializar Firebase
-  firebase.initializeApp(firebaseConfig);
-  const database = firebase.database();
-  
-  window.firebaseDB = database;
-
-  console.log('Firebase inicializado correctamente');
+    // ── PWA install banner ────────────────────────────
+    let _dip = null;
+    window.addEventListener('beforeinstallprompt', e => {
+      e.preventDefault(); _dip = e;
+      setTimeout(() => {
+        const b = document.getElementById('installBanner');
+        if (b) b.classList.add('show');
+      }, 4000);
+    });
+    window.instalarPWA = async function() {
+      if (!_dip) return;
+      _dip.prompt();
+      await _dip.userChoice;
+      _dip = null; ocultarBanner();
+    };
+    window.ocultarBanner = function() {
+      const b = document.getElementById('installBanner');
+      if (b) b.classList.remove('show');
+    };
+    window.addEventListener('appinstalled', ocultarBanner);
   </script>
+
 </body>
 </html>
