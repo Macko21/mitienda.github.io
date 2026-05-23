@@ -89,9 +89,8 @@ function cargarDatosFirebase() {
   });
 }
 
-// ===============================
-// MENU MOBILE
-// ===============================
+// ── Formato de número de venta: 00001 ────────────────────────────────────────
+function fmtId(n) { return String(n).padStart(5, '0'); }
 
 function toggleMenu() {
   document.getElementById('sidebar').classList.toggle('sidebar-hidden');
@@ -138,12 +137,61 @@ function dashboardHTML() {
   const total = db.ventas.reduce((a, v) => a + (v.total || 0), 0);
   const pendientes = db.ventas.filter(v => v.saldo > 0).length;
 
+  // ── Últimas 5 ventas (ordenadas por id desc) ──────────────────────────────
+  const ultVentas = [...db.ventas]
+    .sort((a, b) => (b.id || 0) - (a.id || 0))
+    .slice(0, 5);
+
+  // ── Últimos 5 pagos (de historialPagos de todas las ventas) ───────────────
+  const todosLosPagos = [];
+  db.ventas.forEach(v => {
+    if (v.historialPagos?.length) {
+      v.historialPagos.forEach(p => {
+        todosLosPagos.push({
+          ventaId: v.id,
+          clienteNombre: v.clienteNombre,
+          monto: p.monto,
+          fecha: p.fecha
+        });
+      });
+    } else if (v.pagado > 0) {
+      todosLosPagos.push({
+        ventaId: v.id,
+        clienteNombre: v.clienteNombre,
+        monto: v.pagado,
+        fecha: v.fecha
+      });
+    }
+  });
+  // Ordenar por fecha desc
+  todosLosPagos.sort((a, b) => {
+    const ta = typeof a.fecha === 'string' && a.fecha.includes('/') ? a.fecha : new Date(a.fecha).getTime();
+    const tb = typeof b.fecha === 'string' && b.fecha.includes('/') ? b.fecha : new Date(b.fecha).getTime();
+    return String(tb).localeCompare(String(ta));
+  });
+  const ultPagos = todosLosPagos.slice(0, 5);
+
+  const fmtFecha = f => {
+    if (!f) return '';
+    if (typeof f === 'string' && f.includes('/')) return f;
+    const d = new Date(f);
+    return isNaN(d) ? String(f) : d.toLocaleDateString('es-AR');
+  };
+
+  // ── Total cobrado hoy ─────────────────────────────────────────────────────
+  const hoy = new Date().toLocaleDateString('es-AR');
+  const cobradoHoy = todosLosPagos
+    .filter(p => fmtFecha(p.fecha) === hoy)
+    .reduce((s, p) => s + p.monto, 0);
+
   return `
     <div class="mb-8">
       <h1 class="text-3xl md:text-4xl font-black text-gray-800">Dashboard</h1>
       <p class="text-gray-500 mt-2">Resumen general del negocio</p>
     </div>
-    <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6">
+
+    <!-- Stats principales -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6 mb-8">
       <div class="bg-gradient-to-r from-blue-600 to-blue-500 text-white p-6 rounded-3xl shadow-xl">
         <div class="flex items-center justify-between">
           <div><p class="text-blue-100">Total Vendido</p><h2 class="text-4xl font-black mt-2">$${total.toLocaleString()}</h2></div>
@@ -169,6 +217,113 @@ function dashboardHTML() {
         </div>
       </div>
     </div>
+
+    <!-- Caja del día -->
+    <div class="bg-gradient-to-r from-purple-600 to-purple-500 text-white p-6 rounded-3xl shadow-xl mb-8">
+      <div class="flex items-center justify-between">
+        <div>
+          <p class="text-purple-200 text-sm font-semibold">CAJA DEL DÍA — ${hoy}</p>
+          <h2 class="text-4xl font-black mt-1">$${cobradoHoy.toLocaleString()}</h2>
+          <p class="text-purple-200 text-xs mt-1">Total cobrado hoy entre ventas y cuotas</p>
+        </div>
+        <div class="w-16 h-16 rounded-2xl bg-white/20 flex items-center justify-center text-3xl">🏪</div>
+      </div>
+    </div>
+
+    <!-- Últimas ventas + Últimos pagos -->
+    <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+
+      <!-- Últimas 5 ventas -->
+      <div class="bg-white rounded-3xl shadow-xl p-6">
+        <div class="flex items-center justify-between mb-5">
+          <div>
+            <h2 class="text-xl font-black text-gray-800">Últimas ventas</h2>
+            <p class="text-xs text-gray-400 mt-0.5">Las 5 más recientes</p>
+          </div>
+          <div class="flex gap-2">
+            <button onclick="descargarReporteVentas()"
+              class="text-xs bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 px-3 py-2 rounded-xl font-bold transition">
+              📄 Descargar
+            </button>
+            <button onclick="showTab(6)"
+              class="text-xs bg-gray-100 hover:bg-gray-200 text-gray-600 px-3 py-2 rounded-xl font-bold transition">
+              Ver todo →
+            </button>
+          </div>
+        </div>
+
+        ${ultVentas.length === 0
+          ? `<div class="text-center py-10 text-gray-400"><div class="text-4xl mb-2">🛒</div><p>Sin ventas aún</p></div>`
+          : `<div class="space-y-3">
+              ${ultVentas.map(v => {
+                const esQuincenal = v.esQuincenal || false;
+                const badge = v.saldo === 0
+                  ? `<span class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-bold">✓ Pagada</span>`
+                  : `<span class="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full font-bold">Pendiente</span>`;
+                return `
+                  <div class="flex items-center justify-between py-3 border-b border-gray-50 last:border-0">
+                    <div class="flex items-center gap-3">
+                      <span class="text-xs font-black text-purple-600 bg-purple-50 border border-purple-200 px-2 py-1 rounded-lg min-w-[52px] text-center">#${fmtId(v.id)}</span>
+                      <div>
+                        <p class="font-bold text-gray-800 text-sm">${v.clienteNombre}</p>
+                        <div class="flex items-center gap-2 mt-0.5">
+                          <p class="text-xs text-gray-400">${v.fecha}</p>
+                          ${badge}
+                        </div>
+                      </div>
+                    </div>
+                    <div class="text-right">
+                      <p class="font-black text-gray-800">$${v.total.toLocaleString()}</p>
+                      <p class="text-xs text-gray-400">${esQuincenal ? '🗓 Quincenal' : v.cuotasTotales === 1 ? 'Contado' : v.cuotasTotales + ' cuotas'}</p>
+                    </div>
+                  </div>`;
+              }).join('')}
+            </div>`
+        }
+      </div>
+
+      <!-- Últimos 5 pagos -->
+      <div class="bg-white rounded-3xl shadow-xl p-6">
+        <div class="flex items-center justify-between mb-5">
+          <div>
+            <h2 class="text-xl font-black text-gray-800">Últimos pagos</h2>
+            <p class="text-xs text-gray-400 mt-0.5">Los 5 más recientes</p>
+          </div>
+          <div class="flex gap-2">
+            <button onclick="descargarReportePagos()"
+              class="text-xs bg-green-50 hover:bg-green-100 text-green-700 border border-green-200 px-3 py-2 rounded-xl font-bold transition">
+              📄 Descargar
+            </button>
+            <button onclick="showTab(5)"
+              class="text-xs bg-gray-100 hover:bg-gray-200 text-gray-600 px-3 py-2 rounded-xl font-bold transition">
+              Ver todo →
+            </button>
+          </div>
+        </div>
+
+        ${ultPagos.length === 0
+          ? `<div class="text-center py-10 text-gray-400"><div class="text-4xl mb-2">💵</div><p>Sin pagos registrados</p></div>`
+          : `<div class="space-y-3">
+              ${ultPagos.map(p => `
+                <div class="flex items-center justify-between py-3 border-b border-gray-50 last:border-0">
+                  <div class="flex items-center gap-3">
+                    <span class="text-xs font-black text-purple-600 bg-purple-50 border border-purple-200 px-2 py-1 rounded-lg min-w-[52px] text-center">#${fmtId(p.ventaId)}</span>
+                    <div>
+                      <p class="font-bold text-gray-800 text-sm">${p.clienteNombre}</p>
+                      <p class="text-xs text-gray-400">${fmtFecha(p.fecha)}</p>
+                    </div>
+                  </div>
+                  <div class="text-right">
+                    <p class="font-black text-green-600">+$${p.monto.toLocaleString()}</p>
+                    <p class="text-xs text-gray-400">pago</p>
+                  </div>
+                </div>
+              `).join('')}
+            </div>`
+        }
+      </div>
+
+    </div>
   `;
 }
 
@@ -189,6 +344,7 @@ function clientesHTML() {
             <div>
               <h3 class="font-black text-lg text-gray-800">${c.nombre}</h3>
               <p class="text-gray-500 mt-1">📞 ${c.telefono || '-'}</p>
+              ${c.direccion ? `<p class="text-gray-500">📍 ${c.direccion}</p>` : ''}
               <p class="text-green-600 font-bold mt-2">Compró: $${(c.compras || 0).toLocaleString()}</p>
             </div>
             <div class="flex gap-2">
@@ -211,9 +367,14 @@ function abrirFormularioCliente(cliente = null) {
         <input id="nombre" placeholder="Ej: Juan García" value="${cliente?.nombre || ''}"
           class="w-full p-3 border border-gray-300 rounded-xl focus:outline-none focus:border-blue-500">
       </div>
-      <div class="mb-6">
+      <div class="mb-4">
         <label class="block text-sm font-bold text-gray-700 mb-2">Teléfono</label>
         <input id="telefono" placeholder="Ej: +54 9 11 1234567" value="${cliente?.telefono || ''}"
+          class="w-full p-3 border border-gray-300 rounded-xl focus:outline-none focus:border-blue-500">
+      </div>
+      <div class="mb-6">
+        <label class="block text-sm font-bold text-gray-700 mb-2">Dirección</label>
+        <input id="direccion" placeholder="Ej: San Martín 456, Necochea" value="${cliente?.direccion || ''}"
           class="w-full p-3 border border-gray-300 rounded-xl focus:outline-none focus:border-blue-500">
       </div>
       <div class="grid grid-cols-2 gap-4">
@@ -231,9 +392,11 @@ function guardarCliente(id) {
   if (!nombre) return Swal.fire({ icon: 'warning', title: 'Ingrese nombre' });
   if (id !== null) {
     const cliente = db.clientes.find(c => c.id == id);
-    cliente.nombre = nombre; cliente.telefono = telefono;
+    cliente.nombre = nombre;
+    cliente.telefono = telefono;
+    cliente.direccion = document.getElementById('direccion').value.trim();
   } else {
-    db.clientes.push({ id: Date.now(), nombre, telefono, compras: 0 });
+    db.clientes.push({ id: Date.now(), nombre, telefono, direccion: document.getElementById('direccion').value.trim(), compras: 0 });
   }
   saveDB(); cerrarModal(); showTab(1);
 }
@@ -279,12 +442,12 @@ function articulosHTML() {
               <h2 class="text-4xl font-black text-green-600">$${p.precioContado}</h2>
             </div>
             <div class="grid grid-cols-2 gap-3 mt-5 text-sm">
-              <div class="bg-purple-50 border border-purple-200 p-3 rounded-2xl col-span-2">
+              <div class="bg-purple-50 border border-purple-200 p-3 rounded-2xl">
                 🗓 Quincenal<br><span class="font-black text-purple-700">$${p.preciosCuotas?.[12] || 0}</span>
               </div>
               <div class="bg-gray-100 p-3 rounded-2xl">4 cuotas<br><span class="font-black">$${p.preciosCuotas?.[4] || 0}</span></div>
               <div class="bg-gray-100 p-3 rounded-2xl">6 cuotas<br><span class="font-black">$${p.preciosCuotas?.[6] || 0}</span></div>
-              <div class="bg-gray-100 p-3 rounded-2xl col-span-2">8 cuotas<br><span class="font-black">$${p.preciosCuotas?.[8] || 0}</span></div>
+              <div class="bg-gray-100 p-3 rounded-2xl">8 cuotas<br><span class="font-black">$${p.preciosCuotas?.[8] || 0}</span></div>
             </div>
           </div>
         </div>
@@ -333,12 +496,12 @@ function abrirFormularioProducto(prod = null) {
 
           <!-- QUINCENAL PRIMERO -->
           <div class="bg-purple-50 p-3 rounded-xl border border-purple-200 col-span-2">
-            <label class="text-xs text-purple-700 font-semibold block mb-2">🗓 Quincenal (valor por quincena)</label>
+            <label class="text-xs text-purple-700 font-semibold block mb-2">🗓 Quincenal (valor por quincena — 2 pagos en total)</label>
             <input id="c12" type="number" placeholder="$0" value="${prod?.preciosCuotas?.[12] || ''}"
               oninput="mostrarTotalCuota(12)"
               class="w-full p-2 border border-purple-300 rounded-lg text-sm focus:outline-none focus:border-purple-500">
             <p id="info12" class="text-xs text-purple-600 mt-1">
-              Total de referencia: $${(prod?.preciosCuotas?.[12] || 0) * 24}
+              Total (2 quincenas): $${(prod?.preciosCuotas?.[12] || 0) * 2}
             </p>
           </div>
 
@@ -389,7 +552,7 @@ function mostrarTotalCuota(c) {
   const el = document.getElementById(`info${c}`);
   if (!el) return;
   if (c === 12) {
-    el.innerHTML = `Total de referencia (24 quincenas): $${(valor * 24).toLocaleString()}`;
+    el.innerHTML = `Total (2 quincenas): $${(valor * 2).toLocaleString()}`;
   } else {
     el.innerHTML = `Total: $${(valor * c).toLocaleString()}`;
   }
@@ -471,13 +634,10 @@ function catalogoHTML() {
             <p class="text-4xl font-black text-green-600 mt-4">$${p.precioContado}</p>
             <p class="text-gray-500">Contado</p>
             <div class="grid grid-cols-2 gap-3 mt-5">
-
-              <!-- QUINCENAL PRIMERO -->
-              <div class="bg-purple-50 rounded-2xl p-3 col-span-2 border border-purple-200">
+              <div class="bg-purple-50 rounded-2xl p-3 border border-purple-200">
                 <p class="text-xs text-purple-600 font-bold">🗓 Quincenal</p>
                 <p class="font-black text-lg text-purple-700">$${p.preciosCuotas?.[12] || 0}</p>
               </div>
-
               <div class="bg-gray-100 rounded-2xl p-3">
                 <p class="text-xs text-gray-500">4 cuotas</p>
                 <p class="font-black text-lg">$${p.preciosCuotas?.[4] || 0}</p>
@@ -486,11 +646,10 @@ function catalogoHTML() {
                 <p class="text-xs text-gray-500">6 cuotas</p>
                 <p class="font-black text-lg">$${p.preciosCuotas?.[6] || 0}</p>
               </div>
-              <div class="bg-gray-100 rounded-2xl p-3 col-span-2">
+              <div class="bg-gray-100 rounded-2xl p-3">
                 <p class="text-xs text-gray-500">8 cuotas</p>
                 <p class="font-black text-lg">$${p.preciosCuotas?.[8] || 0}</p>
               </div>
-
             </div>
           </div>
         </div>
@@ -678,26 +837,30 @@ function restarCantidad(index) {
 function calcularTotal() {
   const cuotas = Number(document.getElementById('cuotasSelect')?.value || 1);
   const entrega = Number(document.getElementById('entregaInput')?.value || 0);
+  const esQuincenal = cuotas === 12;
   let total = 0;
 
   carrito.forEach(item => {
     let precio = 0;
     if (cuotas === 1) {
       precio = item.precioContado;
+    } else if (esQuincenal) {
+      // Quincenal: precio por quincena × 2 quincenas
+      precio = (item.preciosCuotas?.[12] || 0) * 2;
     } else {
-      // Para quincenal (12): el precio guardado es por quincena, el total es precio*cuotas
       precio = (item.preciosCuotas?.[cuotas] || 0) * cuotas;
     }
     total += precio * item.cantidad;
   });
 
+  const cuotasTotalesReales = esQuincenal ? 2 : cuotas;
   const saldoRestante = Math.max(0, total - entrega);
-  const valorCuota = cuotas > 1 ? Math.ceil(saldoRestante / cuotas) : saldoRestante;
+  const valorCuota = cuotasTotalesReales > 1 ? Math.ceil(saldoRestante / cuotasTotalesReales) : saldoRestante;
 
   // Etiqueta dinámica
   const labelEl = document.getElementById('labelPagoCuota');
   if (labelEl) {
-    labelEl.textContent = cuotas == 12 ? 'Pago quincenal' : cuotas == 1 ? 'Pago único' : 'Pago por cuota';
+    labelEl.textContent = esQuincenal ? 'Pago por quincena' : cuotas == 1 ? 'Pago único' : 'Pago por cuota';
   }
 
   const setEl = (id, val) => { const el = document.getElementById(id); if (el) el.innerHTML = val; };
@@ -714,21 +877,39 @@ function finalizarVenta() {
   if (!clienteId) return Swal.fire({ icon: 'warning', title: 'Selecciona un cliente' });
 
   const cliente = db.clientes.find(c => c.id == clienteId);
-  const cuotas = parseInt(document.getElementById('cuotasSelect').value);
+  const cuotasSelect = parseInt(document.getElementById('cuotasSelect').value);
   const entrega = Number(document.getElementById('entregaInput').value || 0);
-  const esQuincenal = cuotas === 12;
+  const esQuincenal = cuotasSelect === 12;
+
+  // Para quincenal: son SIEMPRE 2 quincenas, el precio guardado en [12] es el valor POR quincena
+  // Para cuotas normales: cuotasTotales = el número seleccionado
+  const cuotasTotalesReales = esQuincenal ? 2 : cuotasSelect;
+
   let total = 0;
   const itemsVenta = [];
 
   carrito.forEach(item => {
-    const precioUnitario = cuotas === 1 ? item.precioContado : (item.preciosCuotas?.[cuotas] || item.precioContado);
-    const subtotal = (precioUnitario * cuotas) * item.cantidad;
+    let precioUnitario, subtotal;
+    if (cuotasSelect === 1) {
+      // Contado
+      precioUnitario = item.precioContado;
+      subtotal = precioUnitario * item.cantidad;
+    } else if (esQuincenal) {
+      // Quincenal: precioUnitario = valor por quincena, total = quincena * 2
+      precioUnitario = item.preciosCuotas?.[12] || item.precioContado;
+      subtotal = precioUnitario * 2 * item.cantidad;
+    } else {
+      // Cuotas normales: precioUnitario = valor por cuota, total = cuota * n
+      precioUnitario = item.preciosCuotas?.[cuotasSelect] || item.precioContado;
+      subtotal = precioUnitario * cuotasSelect * item.cantidad;
+    }
     total += subtotal;
     itemsVenta.push({ nombre: item.nombre, cantidad: item.cantidad, precio: precioUnitario, subtotal });
   });
 
   const saldoRestante = Math.max(0, total - entrega);
-  const valorCuota = cuotas > 1 ? Math.ceil(saldoRestante / cuotas) : saldoRestante;
+  // valorCuota = cuánto se paga en cada quincena/cuota
+  const valorCuota = cuotasTotalesReales > 1 ? Math.ceil(saldoRestante / cuotasTotalesReales) : saldoRestante;
 
   db.ventaCounter++;
   const venta = {
@@ -737,8 +918,8 @@ function finalizarVenta() {
     clienteNombre: cliente.nombre,
     items: itemsVenta, total, entrega,
     saldoOriginal: saldoRestante, valorCuota,
-    cuotasTotales: cuotas,
-    cuotasPagadas: cuotas === 1 ? 1 : 0,
+    cuotasTotales: cuotasTotalesReales,   // 2 para quincenal, N para cuotas
+    cuotasPagadas: cuotasSelect === 1 ? 1 : 0,
     saldo: saldoRestante, pagado: entrega,
     esQuincenal
   };
@@ -802,7 +983,10 @@ function pagosHTML() {
           <div class="bg-white rounded-3xl shadow-sm border border-gray-100 p-5">
             <div class="flex justify-between items-start gap-4">
               <div class="flex-1">
-                <h3 class="font-bold text-lg">${v.clienteNombre}</h3>
+                <div class="flex items-center gap-2 flex-wrap mb-1">
+                  <span class="text-xs font-black text-purple-600 bg-purple-50 border border-purple-200 px-2 py-0.5 rounded-lg">#${fmtId(v.id)}</span>
+                  <h3 class="font-bold text-lg">${v.clienteNombre}</h3>
+                </div>
                 <div class="mt-2 flex flex-wrap gap-2">
                   <span class="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-xs font-bold">Total: $${v.total.toLocaleString()}</span>
                   <span class="bg-green-100 text-green-700 px-3 py-1 rounded-full text-xs font-bold">Entrega: $${(v.entrega || 0).toLocaleString()}</span>
@@ -813,7 +997,9 @@ function pagosHTML() {
               <div class="text-right">
                 <p class="text-red-600 text-2xl font-bold">$${v.saldo.toLocaleString()}</p>
                 <p class="text-sm text-gray-500 mt-1">
-                  ${esQuincenal ? `${v.cuotasPagadas} quincenas pagadas` : `${v.cuotasPagadas}/${v.cuotasTotales} cuotas`}
+                  ${esQuincenal
+                    ? `${v.cuotasPagadas}/${v.cuotasTotales} quincenas`
+                    : `${v.cuotasPagadas}/${v.cuotasTotales} cuotas`}
                 </p>
               </div>
             </div>
@@ -822,6 +1008,50 @@ function pagosHTML() {
               <button onclick="cancelarUltimoPago(${v.id})" class="bg-yellow-500 hover:bg-yellow-600 text-white py-4 rounded-2xl font-semibold transition">↩️ Cancelar Último Pago</button>
               <button onclick="eliminarVentaPendiente(${v.id})" class="bg-red-600 hover:bg-red-700 text-white py-4 rounded-2xl font-semibold transition">🗑️ Eliminar Venta</button>
             </div>
+            ${(() => {
+              // Construir lista de pagos para mostrar
+              let pagos = [];
+              if (v.historialPagos?.length) {
+                pagos = v.historialPagos;
+              } else if (v.pagado > 0) {
+                pagos = [{ monto: v.pagado, fecha: v.fecha }];
+              } else if (v.entrega > 0) {
+                pagos = [{ monto: v.entrega, fecha: v.fecha }];
+              }
+              // Si aún no hay pagos pero la venta existe, igual mostrar botón con monto total
+              if (!pagos.length) {
+                pagos = [{ monto: v.total, fecha: v.fecha }];
+              }
+              const fmtFecha = f => {
+                if (!f) return '';
+                // Si ya es string tipo "15/5/2025" lo devolvemos directo
+                if (typeof f === 'string' && f.includes('/')) return f;
+                const d = new Date(f);
+                return isNaN(d) ? String(f) : d.toLocaleDateString('es-AR');
+              };
+              return `
+              <div class="mt-4 pt-4 border-t border-gray-100">
+                <p class="text-xs font-bold text-gray-500 mb-2">COMPROBANTES</p>
+                ${pagos.map(p => `
+                  <div class="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
+                    <div>
+                      <span class="text-sm font-semibold text-gray-700">$${p.monto.toLocaleString()}</span>
+                      ${fmtFecha(p.fecha) ? `<span class="text-xs text-gray-400 ml-2">${fmtFecha(p.fecha)}</span>` : ''}
+                    </div>
+                    <div class="flex gap-2">
+                      <button onclick="descargarComprobantePago(${v.id}, ${p.monto})"
+                        class="text-xs bg-gray-100 hover:bg-gray-200 text-gray-600 px-3 py-1 rounded-lg font-semibold transition">
+                        📄 PDF
+                      </button>
+                      <button onclick="wspComprobantePago(${v.id}, ${p.monto})"
+                        class="text-xs bg-green-50 hover:bg-green-100 text-green-700 px-3 py-1 rounded-lg font-semibold transition">
+                        📲 WS
+                      </button>
+                    </div>
+                  </div>
+                `).join('')}
+              </div>`;
+            })()}
           </div>
         `;
       }).join('')}
@@ -831,8 +1061,9 @@ function pagosHTML() {
 
 function registrarPago(id) {
   const venta = db.ventas.find(v => v.id == id);
-  const esQuincenal = venta.esQuincenal || venta.cuotasTotales === 12;
-  const montoSugerido = venta.valorCuota || Math.round(venta.saldo / Math.max(1, venta.cuotasTotales - venta.cuotasPagadas));
+  const esQuincenal = venta.esQuincenal || false;
+  const cuotasPendientes = Math.max(1, venta.cuotasTotales - venta.cuotasPagadas);
+  const montoSugerido = venta.valorCuota || Math.round(venta.saldo / cuotasPendientes);
 
   Swal.fire({
     title: esQuincenal ? '💵 Registrar pago quincenal' : '💵 Registrar pago',
@@ -894,32 +1125,71 @@ function registrarPago(id) {
     venta.historialPagos.push({ fecha: new Date().toISOString(), monto: montoPagado });
     venta.cuotasPagadas = venta.cuotasTotales > 1 ? venta.historialPagos.length : 1;
     saveDB();
-    generarComprobantesPago(venta, montoPagado);
 
-    const cliente = db.clientes.find(c => c.nombre === venta.clienteNombre);
-    Swal.fire({
-      title: '✅ Pago registrado',
-      icon: 'success',
-      html: `
-        <p style="margin-bottom:6px;">Monto: <b>$${montoPagado.toLocaleString()}</b></p>
-        <p style="color:#6b7280; font-size:13px;">Saldo restante: <b style="color:#ef4444;">$${venta.saldo.toLocaleString()}</b></p>
-        <hr style="margin:12px 0; border-color:#e5e7eb;">
-        <p>¿Enviar comprobante por WhatsApp?</p>
-      `,
-      showCancelButton: true,
-      confirmButtonText: '📲 Enviar',
-      cancelButtonText: 'No ahora'
-    }).then(result => {
-      if (result.isConfirmed) {
-        if (cliente && cliente.telefono) {
-          enviarComprobanteWhatsAppCliente(venta, montoPagado, cliente);
-        } else {
-          Swal.fire({ icon: 'warning', title: 'Sin número', text: 'El cliente no tiene teléfono registrado' });
-        }
-      }
-      showTab(5);
-    });
+    // NO descarga automática — mostrar modal con opciones
+    mostrarModalPostPago(venta, montoPagado);
   });
+}
+
+function mostrarModalPostPago(venta, montoPagado) {
+  const cliente = db.clientes.find(c => c.nombre === venta.clienteNombre);
+  const esQuincenal = venta.esQuincenal || false;
+  const terminada = venta.saldo === 0;
+
+  document.getElementById('modalContent').innerHTML = `
+    <div class="p-6">
+      <div style="text-align:center; margin-bottom:20px;">
+        <div style="font-size:48px; margin-bottom:8px;">✅</div>
+        <h2 style="font-size:22px; font-weight:900; color:#1f2937; margin-bottom:4px;">Pago registrado</h2>
+        <p style="color:#6b7280; font-size:13px;">
+          ${esQuincenal
+            ? `Quincena ${venta.cuotasPagadas} de ${venta.cuotasTotales}`
+            : venta.cuotasTotales === 1 ? 'Pago contado' : `Cuota ${venta.cuotasPagadas} de ${venta.cuotasTotales}`}
+        </p>
+      </div>
+
+      <div style="background:#f9fafb; border-radius:12px; padding:14px; margin-bottom:18px;">
+        <div style="display:flex; justify-content:space-between; padding:5px 0; font-size:14px;">
+          <span style="color:#6b7280;">Cliente</span>
+          <strong>${venta.clienteNombre}</strong>
+        </div>
+        <div style="display:flex; justify-content:space-between; padding:5px 0; font-size:14px;">
+          <span style="color:#6b7280;">Monto pagado</span>
+          <strong style="color:#16a34a; font-size:18px;">$${montoPagado.toLocaleString()}</strong>
+        </div>
+        <div style="display:flex; justify-content:space-between; padding:5px 0; font-size:14px; border-top:1px solid #e5e7eb; margin-top:6px; padding-top:10px;">
+          <span style="color:#6b7280;">Saldo restante</span>
+          <strong style="color:${terminada ? '#16a34a' : '#ef4444'};">
+            ${terminada ? '✓ Pagado completo' : '$' + venta.saldo.toLocaleString()}
+          </strong>
+        </div>
+      </div>
+
+      <div style="display:flex; flex-direction:column; gap:10px;">
+        <button onclick="descargarComprobanteUnico(${venta.id}, ${montoPagado})"
+          style="background:#f3f4f6; border:1.5px solid #d1d5db; border-radius:12px; padding:13px; font-size:14px; font-weight:700; cursor:pointer; color:#374151; display:flex; align-items:center; justify-content:center; gap:8px;">
+          📄 Descargar comprobante PDF
+        </button>
+
+        ${cliente?.telefono ? `
+        <button onclick="wspComprobanteUnico(${venta.id}, ${montoPagado})"
+          style="background:#dcfce7; border:1.5px solid #86efac; border-radius:12px; padding:13px; font-size:14px; font-weight:700; cursor:pointer; color:#166534; display:flex; align-items:center; justify-content:center; gap:8px;">
+          📲 Enviar por WhatsApp
+        </button>
+        ` : `
+        <div style="background:#fef9c3; border:1px solid #fde047; border-radius:10px; padding:10px; font-size:12px; color:#854d0e; text-align:center;">
+          ⚠️ El cliente no tiene teléfono registrado
+        </div>
+        `}
+
+        <button onclick="cerrarModal(); showTab(5);"
+          style="background:none; border:none; color:#9ca3af; font-size:13px; cursor:pointer; padding:8px;">
+          Cerrar
+        </button>
+      </div>
+    </div>
+  `;
+  document.getElementById('modal').classList.remove('hidden');
 }
 
 function cancelarUltimoPago(id) {
@@ -972,102 +1242,322 @@ function eliminarVentaPendiente(id) {
 // COMPROBANTE PDF
 // ===============================
 
-function generarComprobantesPago(venta, monto) {
+// ── Construye el HTML del comprobante (reutilizable) ──────────────────────────
+function buildComprobanteHTML(venta, monto) {
   const ahora = new Date();
   const fecha = ahora.toLocaleDateString('es-AR');
-  const hora = ahora.toLocaleTimeString('es-AR');
-  const esQuincenal = venta.esQuincenal || venta.cuotasTotales === 12;
+  const hora  = ahora.toLocaleTimeString('es-AR');
+  const esQuincenal = venta.esQuincenal || false;
 
-  const script = document.createElement('script');
-  script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';
-  script.onload = function () {
-    let cuotasInfo = '';
-    if (venta.cuotasTotales === 1) {
-      cuotasInfo = '<p style="margin: 8px 0;"><strong>PAGO ÚNICO - CONTADO</strong></p>';
-    } else if (esQuincenal) {
-      cuotasInfo = `
-        <p style="margin: 8px 0;"><strong>PLAN QUINCENAL</strong></p>
-        <p style="margin: 8px 0;"><strong>Quincenas pagadas:</strong> ${venta.cuotasPagadas}</p>
-        <p style="margin: 8px 0; color: #ef4444;"><strong>Monto restante:</strong> $${venta.saldo.toLocaleString()}</p>
-      `;
-    } else {
-      const faltan = venta.cuotasTotales - venta.cuotasPagadas;
-      cuotasInfo = `
-        <p style="margin: 8px 0;"><strong>Cuota:</strong> ${venta.cuotasPagadas} de ${venta.cuotasTotales}</p>
-        <p style="margin: 8px 0;"><strong>Cuotas restantes:</strong> ${faltan}</p>
-        <p style="margin: 8px 0; color: #ef4444;"><strong>Monto restante:</strong> $${venta.saldo.toLocaleString()}</p>
-      `;
-    }
+  let cuotasInfo = '';
+  if (venta.cuotasTotales === 1) {
+    cuotasInfo = '<p style="margin:6px 0"><strong>PAGO ÚNICO - CONTADO</strong></p>';
+  } else if (esQuincenal) {
+    cuotasInfo = `
+      <p style="margin:6px 0"><strong>PLAN QUINCENAL</strong></p>
+      <p style="margin:6px 0">Quincenas pagadas: <strong>${venta.cuotasPagadas} de ${venta.cuotasTotales}</strong></p>
+      <p style="margin:6px 0;color:#dc2626">Monto restante: <strong>$${venta.saldo.toLocaleString()}</strong></p>`;
+  } else {
+    cuotasInfo = `
+      <p style="margin:6px 0">Cuota: <strong>${venta.cuotasPagadas} de ${venta.cuotasTotales}</strong></p>
+      <p style="margin:6px 0">Cuotas restantes: <strong>${venta.cuotasTotales - venta.cuotasPagadas}</strong></p>
+      <p style="margin:6px 0;color:#dc2626">Monto restante: <strong>$${venta.saldo.toLocaleString()}</strong></p>`;
+  }
 
-    let itemsHtml = '';
-    venta.items.forEach(item => {
-      itemsHtml += `
-        <tr style="border-bottom: 1px solid #e5e7eb;">
-          <td style="padding: 8px; text-align: left; color: #374151;">${item.nombre}</td>
-          <td style="padding: 8px; text-align: center; color: #374151;">x${item.cantidad}</td>
-          <td style="padding: 8px; text-align: right; color: #374151;">$${item.precio.toLocaleString()}</td>
-          <td style="padding: 8px; text-align: right; color: #374151;">$${item.subtotal.toLocaleString()}</td>
-        </tr>
-      `;
+  let itemsRows = '';
+  venta.items.forEach(item => {
+    itemsRows += `<tr>
+      <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;">${item.nombre}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:center;">${item.cantidad}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:right;">$${item.precio.toLocaleString()}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:right;font-weight:bold;">$${item.subtotal.toLocaleString()}</td>
+    </tr>`;
+  });
+
+  return `<div style="font-family:Arial,Helvetica,sans-serif;width:520px;padding:32px;background:#fff;color:#1f2937;">
+
+  <div style="text-align:center;padding-bottom:16px;border-bottom:3px solid #7c3aed;margin-bottom:20px;">
+    <h1 style="margin:0;font-size:22px;color:#7c3aed;letter-spacing:1px;">COMPROBANTE DE PAGO</h1>
+    <p style="margin:4px 0 0;font-size:12px;color:#6b7280;">OneShop</p>
+  </div>
+
+  <table style="width:100%;margin-bottom:16px;">
+    <tr>
+      <td style="font-size:13px;color:#6b7280;">Fecha:</td>
+      <td style="font-size:13px;font-weight:bold;text-align:right;">${fecha}</td>
+    </tr>
+    <tr>
+      <td style="font-size:13px;color:#6b7280;">Hora:</td>
+      <td style="font-size:13px;text-align:right;">${hora}</td>
+    </tr>
+    <tr>
+      <td style="font-size:13px;color:#6b7280;">Cliente:</td>
+      <td style="font-size:13px;font-weight:bold;text-align:right;">${venta.clienteNombre}</td>
+    </tr>
+    <tr>
+      <td style="font-size:13px;color:#6b7280;">N° Venta:</td>
+      <td style="font-size:13px;text-align:right;">#${fmtId(venta.id)}</td>
+    </tr>
+  </table>
+
+  <table style="width:100%;border-collapse:collapse;margin-bottom:16px;">
+    <thead>
+      <tr style="background:#f3f4f6;">
+        <th style="padding:6px 8px;text-align:left;font-size:12px;color:#374151;border-bottom:2px solid #d1d5db;">Artículo</th>
+        <th style="padding:6px 8px;text-align:center;font-size:12px;color:#374151;border-bottom:2px solid #d1d5db;">Cant.</th>
+        <th style="padding:6px 8px;text-align:right;font-size:12px;color:#374151;border-bottom:2px solid #d1d5db;">Precio</th>
+        <th style="padding:6px 8px;text-align:right;font-size:12px;color:#374151;border-bottom:2px solid #d1d5db;">Subtotal</th>
+      </tr>
+    </thead>
+    <tbody style="font-size:12px;">${itemsRows}</tbody>
+  </table>
+
+  <div style="background:#f5f3ff;border-left:4px solid #7c3aed;padding:12px 14px;margin-bottom:14px;border-radius:0 6px 6px 0;">
+    <p style="margin:0;font-size:12px;color:#6b7280;">Monto pagado en esta transacción</p>
+    <p style="margin:4px 0 0;font-size:24px;font-weight:900;color:#16a34a;">$${monto.toLocaleString()}</p>
+  </div>
+
+  <div style="background:#f9fafb;padding:12px 14px;border-radius:6px;margin-bottom:16px;font-size:12px;">
+    <p style="margin:0 0 6px;font-weight:bold;color:#374151;">ESTADO DE PAGOS</p>
+    ${cuotasInfo}
+  </div>
+
+  <div style="text-align:center;padding-top:16px;border-top:1px solid #e5e7eb;">
+    <p style="margin:0;font-size:14px;font-weight:bold;color:#7c3aed;">¡Muchas gracias por tu compra!</p>
+    <p style="margin:4px 0 0;font-size:11px;color:#9ca3af;">Este comprobante es válido como recibo de pago</p>
+  </div>
+
+</div>`;
+}
+
+function descargarPDFComprobante(venta, monto) {
+  const cargarLib = () => new Promise(resolve => {
+    if (window.jspdf) { resolve(); return; }
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js';
+    s.onload = resolve;
+    document.head.appendChild(s);
+  });
+
+  cargarLib().then(() => {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
+    const esQuincenal = venta.esQuincenal || false;
+    const W = 210; // ancho A4
+    const margen = 20;
+    const ancho = W - margen * 2;
+    let y = 20;
+
+    const colorVioleta  = [124, 58, 237];
+    const colorGris     = [107, 114, 128];
+    const colorNegro    = [31, 41, 55];
+    const colorVerde    = [22, 163, 74];
+    const colorRojo     = [220, 38, 38];
+    const colorFondoGris  = [243, 244, 246];
+    const colorFondoViola = [245, 243, 255];
+
+    // ── Header ─────────────────────────────────────────────────────────────
+    doc.setFillColor(...colorVioleta);
+    doc.rect(margen, y, ancho, 0.8, 'F');
+    y += 4;
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(18);
+    doc.setTextColor(...colorVioleta);
+    doc.text('COMPROBANTE DE PAGO', W / 2, y + 6, { align: 'center' });
+    y += 10;
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.setTextColor(...colorGris);
+    doc.text('OneShop', W / 2, y + 4, { align: 'center' });
+    y += 10;
+
+    doc.setFillColor(...colorVioleta);
+    doc.rect(margen, y, ancho, 0.4, 'F');
+    y += 8;
+
+    // ── Fecha / Cliente ─────────────────────────────────────────────────────
+    const now = new Date();
+    const fecha = now.toLocaleDateString('es-AR');
+    const hora  = now.toLocaleTimeString('es-AR');
+
+    const col1 = margen;
+    const col2 = margen + ancho / 2;
+
+    doc.setFontSize(9);
+    doc.setTextColor(...colorGris);
+    doc.text('Fecha:', col1, y);
+    doc.setTextColor(...colorNegro);
+    doc.setFont('helvetica', 'bold');
+    doc.text(fecha, col1 + 20, y);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(...colorGris);
+    doc.text('Hora:', col2, y);
+    doc.setTextColor(...colorNegro);
+    doc.setFont('helvetica', 'bold');
+    doc.text(hora, col2 + 14, y);
+    y += 6;
+
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(...colorGris);
+    doc.text('Cliente:', col1, y);
+    doc.setTextColor(...colorNegro);
+    doc.setFont('helvetica', 'bold');
+    doc.text(venta.clienteNombre, col1 + 20, y);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(...colorGris);
+    doc.text('N° Venta:', col2, y);
+    doc.setTextColor(...colorNegro);
+    doc.setFont('helvetica', 'bold');
+    doc.text('#' + fmtId(venta.id), col2 + 22, y);
+    y += 10;
+
+    // ── Tabla artículos ──────────────────────────────────────────────────────
+    // Encabezado
+    doc.setFillColor(...colorFondoGris);
+    doc.rect(margen, y - 4, ancho, 8, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.setTextColor(...colorNegro);
+    doc.text('Artículo', col1 + 2, y);
+    doc.text('Cant.', margen + ancho * 0.60, y, { align: 'center' });
+    doc.text('Precio', margen + ancho * 0.78, y, { align: 'right' });
+    doc.text('Subtotal', margen + ancho, y, { align: 'right' });
+    y += 5;
+
+    doc.setDrawColor(209, 213, 219);
+    doc.line(margen, y, margen + ancho, y);
+    y += 5;
+
+    // Filas
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    venta.items.forEach((item, i) => {
+      if (i % 2 === 0) {
+        doc.setFillColor(249, 250, 251);
+        doc.rect(margen, y - 4, ancho, 7, 'F');
+      }
+      doc.setTextColor(...colorNegro);
+      // Nombre — recortar si es muy largo
+      const nombreCorto = item.nombre.length > 38 ? item.nombre.substring(0, 36) + '…' : item.nombre;
+      doc.text(nombreCorto, col1 + 2, y);
+      doc.text(String(item.cantidad), margen + ancho * 0.60, y, { align: 'center' });
+      doc.text('$' + item.precio.toLocaleString(), margen + ancho * 0.78, y, { align: 'right' });
+      doc.setFont('helvetica', 'bold');
+      doc.text('$' + item.subtotal.toLocaleString(), margen + ancho, y, { align: 'right' });
+      doc.setFont('helvetica', 'normal');
+      y += 7;
     });
 
-    const html = `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 30px; background: white;">
-        <div style="text-align: center; margin-bottom: 30px; border-bottom: 3px solid #7c3aed; padding-bottom: 20px;">
-          <h1 style="margin: 0; color: #7c3aed; font-size: 28px;">COMPROBANTE DE PAGO</h1>
-          <p style="margin: 5px 0 0 0; color: #6b7280; font-size: 14px;">OneShop — Transacción registrada</p>
-        </div>
-        <div style="background: #f3f4f6; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
-          <p style="margin: 5px 0; color: #374151;"><strong>Fecha:</strong> ${fecha}</p>
-          <p style="margin: 5px 0; color: #374151;"><strong>Hora:</strong> ${hora}</p>
-        </div>
-        <div style="margin-bottom: 25px;">
-          <h3 style="margin: 0 0 10px 0; color: #1f2937; font-size: 16px;">DATOS DEL CLIENTE</h3>
-          <p style="margin: 5px 0; color: #374151;"><strong>Nombre:</strong> ${venta.clienteNombre}</p>
-          <p style="margin: 5px 0; color: #374151;"><strong>N° Venta:</strong> ${venta.id}</p>
-        </div>
-        <div style="margin-bottom: 25px;">
-          <h3 style="margin: 0 0 10px 0; color: #1f2937; font-size: 16px;">ARTÍCULOS PAGADOS</h3>
-          <table style="width: 100%; border-collapse: collapse;">
-            <thead>
-              <tr style="background: #f3f4f6; border-bottom: 2px solid #d1d5db;">
-                <th style="padding: 10px; text-align: left; color: #1f2937; font-weight: bold;">Artículo</th>
-                <th style="padding: 10px; text-align: center; color: #1f2937; font-weight: bold;">Cant.</th>
-                <th style="padding: 10px; text-align: right; color: #1f2937; font-weight: bold;">Precio</th>
-                <th style="padding: 10px; text-align: right; color: #1f2937; font-weight: bold;">Subtotal</th>
-              </tr>
-            </thead>
-            <tbody>${itemsHtml}</tbody>
-          </table>
-        </div>
-        <div style="background: #f5f3ff; border-left: 4px solid #7c3aed; padding: 15px; margin-bottom: 25px;">
-          <p style="margin: 8px 0; color: #374151;"><strong>Monto pagado en esta transacción:</strong></p>
-          <p style="margin: 8px 0; color: #16a34a; font-size: 24px; font-weight: bold;">$${monto.toLocaleString()}</p>
-        </div>
-        <div style="background: #f9fafb; padding: 15px; border-radius: 8px; margin-bottom: 25px;">
-          <h3 style="margin: 0 0 10px 0; color: #1f2937; font-size: 14px; font-weight: bold;">ESTADO DE PAGOS</h3>
-          ${cuotasInfo}
-        </div>
-        <div style="text-align: center; padding: 30px; border-top: 2px solid #e5e7eb; margin-top: 30px;">
-          <h2 style="margin: 0 0 10px 0; color: #7c3aed; font-size: 20px; font-weight: bold;">Muchas gracias por tu compra!</h2>
-          <p style="margin: 0; color: #6b7280; font-size: 14px;">Esperamos verte pronto</p>
-        </div>
-        <div style="text-align: center; margin-top: 30px; padding-top: 20px; border-top: 1px solid #e5e7eb; color: #9ca3af; font-size: 12px;">
-          <p style="margin: 5px 0;">Este comprobante es válido como recibo de pago</p>
-          <p style="margin: 5px 0;">Por cualquier consulta, contáctenos</p>
-        </div>
-      </div>
-    `;
+    doc.setDrawColor(209, 213, 219);
+    doc.line(margen, y, margen + ancho, y);
+    y += 8;
 
-    const element = document.createElement('div');
-    element.innerHTML = html;
-    html2pdf().set({
-      margin: 5, filename: 'Comprobante-Pago-' + venta.id + '.pdf',
-      image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2 },
-      jsPDF: { orientation: 'portrait', unit: 'mm', format: 'a4' }
-    }).from(element).save();
-  };
-  document.head.appendChild(script);
+    // ── Monto pagado ─────────────────────────────────────────────────────────
+    doc.setFillColor(...colorFondoViola);
+    doc.rect(margen, y - 4, ancho, 18, 'F');
+    doc.setFillColor(...colorVioleta);
+    doc.rect(margen, y - 4, 1.5, 18, 'F');
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.setTextColor(...colorGris);
+    doc.text('Monto pagado en esta transacción:', col1 + 4, y + 2);
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(20);
+    doc.setTextColor(...colorVerde);
+    doc.text('$' + monto.toLocaleString(), col1 + 4, y + 12);
+    y += 24;
+
+    // ── Estado de pagos ───────────────────────────────────────────────────────
+    doc.setFillColor(...colorFondoGris);
+    doc.rect(margen, y - 4, ancho, venta.cuotasTotales === 1 ? 10 : 22, 'F');
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.setTextColor(...colorNegro);
+    doc.text('ESTADO DE PAGOS', col1 + 2, y + 2);
+    y += 8;
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+
+    if (venta.cuotasTotales === 1) {
+      doc.setTextColor(...colorVerde);
+      doc.setFont('helvetica', 'bold');
+      doc.text('PAGO ÚNICO — CONTADO', col1 + 2, y);
+    } else if (esQuincenal) {
+      doc.setTextColor(...colorNegro);
+      doc.text('Plan Quincenal', col1 + 2, y);
+      doc.text(`Quincenas pagadas: ${venta.cuotasPagadas} de ${venta.cuotasTotales}`, col1 + 2, y + 6);
+      if (venta.saldo > 0) {
+        doc.setTextColor(...colorRojo);
+        doc.text(`Monto restante: $${venta.saldo.toLocaleString()}`, col1 + 2, y + 12);
+      }
+    } else {
+      doc.setTextColor(...colorNegro);
+      doc.text(`Cuota ${venta.cuotasPagadas} de ${venta.cuotasTotales}`, col1 + 2, y);
+      doc.text(`Cuotas restantes: ${venta.cuotasTotales - venta.cuotasPagadas}`, col1 + 2, y + 6);
+      if (venta.saldo > 0) {
+        doc.setTextColor(...colorRojo);
+        doc.text(`Monto restante: $${venta.saldo.toLocaleString()}`, col1 + 2, y + 12);
+      }
+    }
+    y += venta.cuotasTotales === 1 ? 10 : 20;
+
+    // ── Footer ────────────────────────────────────────────────────────────────
+    doc.setDrawColor(229, 231, 235);
+    doc.line(margen, y, margen + ancho, y);
+    y += 8;
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.setTextColor(...colorVioleta);
+    doc.text('¡Muchas gracias por tu compra!', W / 2, y, { align: 'center' });
+    y += 6;
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(...colorGris);
+    doc.text('Este comprobante es válido como recibo de pago', W / 2, y, { align: 'center' });
+
+    // ── Guardar ───────────────────────────────────────────────────────────────
+    const nombreArchivo = `Comprobante-${fmtId(venta.id)}-${venta.clienteNombre.replace(/\s+/g, '-')}.pdf`;
+    doc.save(nombreArchivo);
+  });
+}
+
+// ── Funciones llamadas desde los botones del modal post-pago ──────────────────
+window.descargarComprobanteUnico = function(ventaId, monto) {
+  const venta = db.ventas.find(v => v.id == ventaId);
+  if (!venta) return;
+  descargarPDFComprobante(venta, monto);
+  // No cierra el modal — el usuario puede seguir enviando por WhatsApp
+};
+
+window.wspComprobanteUnico = function(ventaId, monto) {
+  const venta = db.ventas.find(v => v.id == ventaId);
+  const cliente = db.clientes.find(c => c.nombre === venta?.clienteNombre);
+  if (!venta || !cliente?.telefono) {
+    Swal.fire({ icon: 'warning', title: 'Sin teléfono', text: 'El cliente no tiene número registrado.', confirmButtonText: 'Entendido' });
+    return;
+  }
+  const numeroWhatsApp = normalizarNumeroWhatsApp(cliente.telefono);
+  if (!numeroWhatsApp) {
+    Swal.fire({ icon: 'error', title: 'Número inválido', text: 'El número del cliente no tiene el formato correcto.', confirmButtonText: 'Entendido' });
+    return;
+  }
+  const msg = `Hola ${cliente.nombre}, te envío el comprobante de pago de $${monto.toLocaleString()}. ¡Gracias!`;
+  window.open(`https://wa.me/${numeroWhatsApp}?text=${encodeURIComponent(msg)}`, '_blank');
+};
+
+// ── Mantener compatibilidad con llamadas existentes (historial, etc.) ──────────
+function generarComprobantesPago(venta, monto) {
+  descargarPDFComprobante(venta, monto);
 }
 
 // ===============================
@@ -1109,6 +1599,7 @@ function historialVentasHTML() {
             <div class="flex justify-between items-start gap-4">
               <div class="flex-1">
                 <div class="flex items-center gap-2 flex-wrap">
+                  <span class="text-xs font-black text-purple-600 bg-purple-50 border border-purple-200 px-2 py-0.5 rounded-lg">#${fmtId(v.id)}</span>
                   <h3 class="font-bold text-lg text-gray-800">${v.clienteNombre}</h3>
                   <span class="bg-green-100 text-green-700 px-3 py-1 rounded-full text-xs font-bold">✓ Pagada</span>
                   ${esQuincenal ? '<span class="bg-purple-100 text-purple-700 px-3 py-1 rounded-full text-xs font-bold">🗓 Quincenal</span>' : ''}
@@ -1123,11 +1614,49 @@ function historialVentasHTML() {
                 </p>
               </div>
             </div>
-            <div class="flex gap-2 mt-4 pt-4 border-t border-green-200">
-              <button onclick="reenviirComprobanteHistorial(${v.id})" class="flex-1 bg-green-600 hover:bg-green-700 text-white py-2 rounded-2xl font-semibold text-sm">📄 Reenviar PDF</button>
-              <button onclick="enviarComprobanteWhatsAppHistorial(${v.id})" class="flex-1 bg-green-600 hover:bg-green-700 text-white py-2 rounded-2xl font-semibold text-sm">💬 WhatsApp</button>
+            <div class="flex gap-2 mt-4 pt-4 border-t border-green-200 flex-wrap">
+              <button onclick="descargarComprobanteCompleto(${v.id})" class="flex-1 bg-purple-600 hover:bg-purple-700 text-white py-2 rounded-2xl font-semibold text-sm">📄 Descargar PDF</button>
+              <button onclick="wspComprobanteCompleto(${v.id})" class="flex-1 bg-green-600 hover:bg-green-700 text-white py-2 rounded-2xl font-semibold text-sm">📲 WhatsApp</button>
               <button onclick="borrarPago(${v.id})" class="flex-1 bg-red-600 hover:bg-red-700 text-white py-2 rounded-2xl font-semibold text-sm">🗑️ Borrar</button>
             </div>
+            ${(() => {
+              let pagos = [];
+              if (v.historialPagos?.length) {
+                pagos = v.historialPagos;
+              } else if (v.pagado > 0) {
+                pagos = [{ monto: v.pagado, fecha: v.fecha }];
+              } else {
+                pagos = [{ monto: v.total, fecha: v.fecha }];
+              }
+              const fmtFecha = f => {
+                if (!f) return '';
+                if (typeof f === 'string' && f.includes('/')) return f;
+                const d = new Date(f);
+                return isNaN(d) ? String(f) : d.toLocaleDateString('es-AR');
+              };
+              return `
+              <div class="mt-4 pt-4 border-t border-green-100">
+                <p class="text-xs font-bold text-gray-500 mb-2">COMPROBANTES</p>
+                ${pagos.map(p => `
+                  <div class="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
+                    <div>
+                      <span class="text-sm font-semibold text-gray-700">$${p.monto.toLocaleString()}</span>
+                      ${fmtFecha(p.fecha) ? `<span class="text-xs text-gray-400 ml-2">${fmtFecha(p.fecha)}</span>` : ''}
+                    </div>
+                    <div class="flex gap-2">
+                      <button onclick="descargarComprobantePago(${v.id}, ${p.monto})"
+                        class="text-xs bg-gray-100 hover:bg-gray-200 text-gray-600 px-3 py-1 rounded-lg font-semibold transition">
+                        📄 PDF
+                      </button>
+                      <button onclick="wspComprobantePago(${v.id}, ${p.monto})"
+                        class="text-xs bg-green-50 hover:bg-green-100 text-green-700 px-3 py-1 rounded-lg font-semibold transition">
+                        📲 WS
+                      </button>
+                    </div>
+                  </div>
+                `).join('')}
+              </div>`;
+            })()}
           </div>
         `;
       }).join('')}
@@ -1159,7 +1688,7 @@ function enviarComprobanteWhatsApp(venta, monto) {
   let itemsTexto = '';
   venta.items.forEach(item => { itemsTexto += `\n- ${item.nombre} x${item.cantidad}: $${item.subtotal.toLocaleString()}`; });
 
-  const texto = `COMPROBANTE DE PAGO\n==================\n\nFecha: ${ahora.toLocaleDateString('es-AR')}\nHora: ${ahora.toLocaleTimeString('es-AR')}\n\nCLIENTE: ${venta.clienteNombre}\nN° Venta: ${venta.id}\n\nARTICULOS PAGADOS:${itemsTexto}\n\nMONTO PAGADO: $${monto.toLocaleString()}\n\nESTADO DE PAGOS:\n${cuotasInfo}\n\n==================\nMuchas gracias por tu compra!\nEsperamos verte pronto`;
+  const texto = `COMPROBANTE DE PAGO\n==================\n\nFecha: ${ahora.toLocaleDateString('es-AR')}\nHora: ${ahora.toLocaleTimeString('es-AR')}\n\nCLIENTE: ${venta.clienteNombre}\nN° Venta: ${fmtId(venta.id)}\n\nARTICULOS PAGADOS:${itemsTexto}\n\nMONTO PAGADO: $${monto.toLocaleString()}\n\nESTADO DE PAGOS:\n${cuotasInfo}\n\n==================\nMuchas gracias por tu compra!\nEsperamos verte pronto`;
   window.open(`https://wa.me/?text=${encodeURIComponent(texto)}`, '_blank');
 }
 
@@ -1172,21 +1701,49 @@ function enviarComprobanteWhatsAppCliente(venta, monto, cliente) {
   }, 1500);
 }
 
-function reenviirComprobanteHistorial(ventaId) {
+window.descargarComprobantePago = function(ventaId, monto) {
   const venta = db.ventas.find(v => v.id == ventaId);
-  generarComprobantesPago(venta, Math.round(venta.total / venta.cuotasTotales));
-  Swal.fire({ icon: 'success', title: 'Comprobante generado', text: 'El PDF se está descargando', toast: true, position: 'top-end', timer: 2000, showConfirmButton: false });
-}
+  if (!venta) return;
+  descargarPDFComprobante(venta, monto);
+};
 
-function enviarComprobanteWhatsAppHistorial(ventaId) {
+window.wspComprobantePago = function(ventaId, monto) {
   const venta = db.ventas.find(v => v.id == ventaId);
-  const cliente = db.clientes.find(c => c.nombre === venta.clienteNombre);
-  if (cliente && cliente.telefono) {
-    enviarComprobanteWhatsAppCliente(venta, Math.round(venta.total / venta.cuotasTotales), cliente);
-  } else {
-    Swal.fire({ icon: 'warning', title: 'Sin número de teléfono', text: 'El cliente no tiene teléfono registrado' });
+  const cliente = db.clientes.find(c => c.nombre === venta?.clienteNombre);
+  if (!cliente?.telefono) {
+    Swal.fire({ icon: 'warning', title: 'Sin teléfono', text: 'El cliente no tiene número registrado. Editalo en la sección Clientes.', confirmButtonText: 'Entendido' });
+    return;
   }
-}
+  const numero = normalizarNumeroWhatsApp(cliente.telefono);
+  if (!numero) {
+    Swal.fire({ icon: 'error', title: 'Número inválido', text: 'El número del cliente no tiene el formato correcto.', confirmButtonText: 'Entendido' });
+    return;
+  }
+  const msg = `Hola ${cliente.nombre}, te envío el comprobante de pago de $${monto.toLocaleString()}. ¡Gracias!`;
+  window.open(`https://wa.me/${numero}?text=${encodeURIComponent(msg)}`, '_blank');
+};
+
+window.descargarComprobanteCompleto = function(ventaId) {
+  const venta = db.ventas.find(v => v.id == ventaId);
+  if (!venta) return;
+  descargarPDFComprobante(venta, venta.total);
+};
+
+window.wspComprobanteCompleto = function(ventaId) {
+  const venta = db.ventas.find(v => v.id == ventaId);
+  const cliente = db.clientes.find(c => c.nombre === venta?.clienteNombre);
+  if (!cliente?.telefono) {
+    Swal.fire({ icon: 'warning', title: 'Sin teléfono', text: 'El cliente no tiene número registrado. Editalo en la sección Clientes.', confirmButtonText: 'Entendido' });
+    return;
+  }
+  const numero = normalizarNumeroWhatsApp(cliente.telefono);
+  if (!numero) {
+    Swal.fire({ icon: 'error', title: 'Número inválido', text: 'El número del cliente no tiene el formato correcto.', confirmButtonText: 'Entendido' });
+    return;
+  }
+  const msg = `Hola ${cliente.nombre}, tu compra por $${venta.total.toLocaleString()} está completamente pagada. ¡Gracias por elegirnos!`;
+  window.open(`https://wa.me/${numero}?text=${encodeURIComponent(msg)}`, '_blank');
+};
 
 function borrarPago(ventaId) {
   Swal.fire({
@@ -1274,6 +1831,150 @@ function cargarDatos() {
     reader.readAsText(file);
   };
   input.click();
+}
+
+// ── Reporte de ventas en PDF ──────────────────────────────────────────────────
+function descargarReporteVentas() {
+  const cargarLib = () => new Promise(resolve => {
+    if (window.jspdf) { resolve(); return; }
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js';
+    s.onload = resolve; document.head.appendChild(s);
+  });
+  cargarLib().then(() => {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+    const W = 210, M = 15, A = W - M * 2;
+    let y = 18;
+    const CV = [124,58,237], CN = [31,41,55], CG = [107,114,128], CFG = [243,244,246];
+
+    doc.setFillColor(...CV); doc.rect(M, y, A, 0.7, 'F'); y += 4;
+    doc.setFont('helvetica','bold'); doc.setFontSize(16); doc.setTextColor(...CV);
+    doc.text('REPORTE DE VENTAS — OneShop', W/2, y+5, { align:'center' }); y += 10;
+    doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(...CG);
+    doc.text(`Generado: ${new Date().toLocaleString('es-AR')} · Total ventas: ${db.ventas.length}`, W/2, y+3, { align:'center' }); y += 10;
+    doc.setFillColor(...CV); doc.rect(M, y, A, 0.4, 'F'); y += 6;
+
+    // Header tabla
+    doc.setFillColor(...CFG); doc.rect(M, y-3, A, 7, 'F');
+    doc.setFont('helvetica','bold'); doc.setFontSize(8); doc.setTextColor(...CN);
+    doc.text('N°', M+2, y+1);
+    doc.text('Cliente', M+18, y+1);
+    doc.text('Fecha', M+75, y+1);
+    doc.text('Modalidad', M+100, y+1);
+    doc.text('Saldo', M+130, y+1);
+    doc.text('Total', A+M, y+1, { align:'right' });
+    y += 8;
+
+    const ventas = [...db.ventas].sort((a,b) => (b.id||0)-(a.id||0));
+    ventas.forEach((v, i) => {
+      if (y > 270) { doc.addPage(); y = 18; }
+      if (i % 2 === 0) { doc.setFillColor(249,250,251); doc.rect(M, y-3, A, 7, 'F'); }
+      doc.setFont('helvetica','bold'); doc.setFontSize(8);
+      doc.setTextColor(...[124,58,237]); doc.text('#'+fmtId(v.id), M+2, y+1);
+      doc.setTextColor(...CN);
+      doc.setFont('helvetica','normal');
+      const nombre = v.clienteNombre.length>28 ? v.clienteNombre.substring(0,26)+'…' : v.clienteNombre;
+      doc.text(nombre, M+18, y+1);
+      doc.text(v.fecha||'', M+75, y+1);
+      const mod = v.esQuincenal ? 'Quincenal' : v.cuotasTotales===1 ? 'Contado' : v.cuotasTotales+'c';
+      doc.text(mod, M+100, y+1);
+      if (v.saldo > 0) { doc.setTextColor(220,38,38); } else { doc.setTextColor(22,163,74); }
+      doc.text('$'+v.saldo.toLocaleString(), M+130, y+1);
+      doc.setTextColor(...CN); doc.setFont('helvetica','bold');
+      doc.text('$'+v.total.toLocaleString(), A+M, y+1, { align:'right' });
+      y += 7;
+    });
+
+    // Totales
+    y += 4;
+    doc.setFillColor(...CFG); doc.rect(M, y-3, A, 10, 'F');
+    doc.setFont('helvetica','bold'); doc.setFontSize(9); doc.setTextColor(...CN);
+    const totalVentas = db.ventas.reduce((s,v)=>s+v.total,0);
+    const totalPend = db.ventas.reduce((s,v)=>s+v.saldo,0);
+    doc.text('TOTAL VENDIDO:', M+2, y+3);
+    doc.setTextColor(...[124,58,237]);
+    doc.text('$'+totalVentas.toLocaleString(), M+50, y+3);
+    doc.setTextColor(...CN); doc.text('SALDO PENDIENTE:', M+100, y+3);
+    doc.setTextColor(220,38,38);
+    doc.text('$'+totalPend.toLocaleString(), M+145, y+3);
+
+    doc.save(`Reporte-Ventas-${new Date().toISOString().slice(0,10)}.pdf`);
+  });
+}
+
+// ── Reporte de pagos en PDF ───────────────────────────────────────────────────
+function descargarReportePagos() {
+  const cargarLib = () => new Promise(resolve => {
+    if (window.jspdf) { resolve(); return; }
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js';
+    s.onload = resolve; document.head.appendChild(s);
+  });
+  cargarLib().then(() => {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+    const W = 210, M = 15, A = W - M * 2;
+    let y = 18;
+    const CV = [22,163,74], CN = [31,41,55], CG = [107,114,128], CFG = [243,244,246];
+
+    // Construir lista de pagos
+    const todosPagos = [];
+    db.ventas.forEach(v => {
+      if (v.historialPagos?.length) {
+        v.historialPagos.forEach(p => todosPagos.push({ ventaId:v.id, cliente:v.clienteNombre, monto:p.monto, fecha:p.fecha }));
+      } else if (v.pagado > 0) {
+        todosPagos.push({ ventaId:v.id, cliente:v.clienteNombre, monto:v.pagado, fecha:v.fecha });
+      }
+    });
+    const fmtF = f => {
+      if (!f) return '';
+      if (typeof f==='string' && f.includes('/')) return f;
+      const d = new Date(f); return isNaN(d) ? String(f) : d.toLocaleDateString('es-AR');
+    };
+    todosPagos.sort((a,b) => String(b.fecha).localeCompare(String(a.fecha)));
+    const totalCobrado = todosPagos.reduce((s,p)=>s+p.monto,0);
+
+    doc.setFillColor(...CV); doc.rect(M, y, A, 0.7, 'F'); y += 4;
+    doc.setFont('helvetica','bold'); doc.setFontSize(16); doc.setTextColor(...CV);
+    doc.text('REPORTE DE PAGOS — OneShop', W/2, y+5, { align:'center' }); y += 10;
+    doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(...CG);
+    doc.text(`Generado: ${new Date().toLocaleString('es-AR')} · ${todosPagos.length} pagos registrados`, W/2, y+3, { align:'center' }); y += 10;
+    doc.setFillColor(...CV); doc.rect(M, y, A, 0.4, 'F'); y += 6;
+
+    // Header
+    doc.setFillColor(...CFG); doc.rect(M, y-3, A, 7, 'F');
+    doc.setFont('helvetica','bold'); doc.setFontSize(8); doc.setTextColor(...CN);
+    doc.text('N° Venta', M+2, y+1);
+    doc.text('Cliente', M+28, y+1);
+    doc.text('Fecha pago', M+100, y+1);
+    doc.text('Monto', A+M, y+1, { align:'right' });
+    y += 8;
+
+    todosPagos.forEach((p, i) => {
+      if (y > 270) { doc.addPage(); y = 18; }
+      if (i % 2 === 0) { doc.setFillColor(249,250,251); doc.rect(M, y-3, A, 7, 'F'); }
+      doc.setFont('helvetica','bold'); doc.setFontSize(8);
+      doc.setTextColor(...[124,58,237]); doc.text('#'+fmtId(p.ventaId), M+2, y+1);
+      doc.setTextColor(...CN); doc.setFont('helvetica','normal');
+      const nombre = p.cliente.length>38 ? p.cliente.substring(0,36)+'…' : p.cliente;
+      doc.text(nombre, M+28, y+1);
+      doc.text(fmtF(p.fecha), M+100, y+1);
+      doc.setFont('helvetica','bold'); doc.setTextColor(...CV);
+      doc.text('+$'+p.monto.toLocaleString(), A+M, y+1, { align:'right' });
+      y += 7;
+    });
+
+    // Total
+    y += 4;
+    doc.setFillColor(...CFG); doc.rect(M, y-3, A, 10, 'F');
+    doc.setFont('helvetica','bold'); doc.setFontSize(9); doc.setTextColor(...CN);
+    doc.text('TOTAL COBRADO:', M+2, y+3);
+    doc.setTextColor(...CV);
+    doc.text('$'+totalCobrado.toLocaleString(), M+50, y+3);
+
+    doc.save(`Reporte-Pagos-${new Date().toISOString().slice(0,10)}.pdf`);
+  });
 }
 
 // ===============================
