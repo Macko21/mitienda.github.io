@@ -44,9 +44,7 @@
       from { transform: translateY(0); }
       to   { transform: translateY(-8px); }
     }
-    #splash .dot-loader {
-      display: flex; gap: 8px;
-    }
+    #splash .dot-loader { display: flex; gap: 8px; }
     #splash .dot-loader span {
       width: 10px; height: 10px; border-radius: 50%;
       background: #7c3aed;
@@ -71,10 +69,7 @@
       transition: transform .35s cubic-bezier(.34,1.56,.64,1);
     }
     #installBanner.show { transform: translateY(0); }
-    #installBanner .ib-icon {
-      width: 46px; height: 46px; border-radius: 12px;
-      overflow: hidden; flex-shrink: 0;
-    }
+    #installBanner .ib-icon { width: 46px; height: 46px; border-radius: 12px; overflow: hidden; flex-shrink: 0; }
     #installBanner .ib-icon img { width: 100%; height: 100%; object-fit: cover; }
     #installBanner .ib-text { flex: 1; }
     #installBanner .ib-text strong { display: block; color: #1f2937; font-size: 14px; font-weight: 800; }
@@ -86,10 +81,7 @@
       cursor: pointer; white-space: nowrap;
       box-shadow: 0 4px 14px rgba(124,58,237,.4);
     }
-    #installBanner .ib-close {
-      background: none; border: none; color: #9ca3af;
-      cursor: pointer; font-size: 20px; padding: 4px 6px; line-height: 1;
-    }
+    #installBanner .ib-close { background: none; border: none; color: #9ca3af; cursor: pointer; font-size: 20px; padding: 4px 6px; line-height: 1; }
 
     /* ── HEADER MOBILE ──────────────────────────────── */
     .mobile-header {
@@ -97,18 +89,9 @@
       border-bottom: 1px solid #ede9fe;
       box-shadow: 0 2px 12px rgba(124,58,237,.08) !important;
     }
-    .mobile-header .header-logo-wrap {
-      display: flex; align-items: center;
-    }
-    .mobile-header .header-logo-wrap img {
-      height: 30px; object-fit: contain;
-      filter: drop-shadow(0 0 6px rgba(124,58,237,.3));
-    }
-    .mobile-header button {
-      background: #ede9fe !important;
-      color: #7c3aed !important;
-      border-radius: 14px !important;
-    }
+    .mobile-header .header-logo-wrap { display: flex; align-items: center; }
+    .mobile-header .header-logo-wrap img { height: 30px; object-fit: contain; filter: drop-shadow(0 0 6px rgba(124,58,237,.3)); }
+    .mobile-header button { background: #ede9fe !important; color: #7c3aed !important; border-radius: 14px !important; }
 
     /* ── SIDEBAR BLANCO ─────────────────────────────── */
     .sidebar {
@@ -121,43 +104,21 @@
       border-bottom: 1px solid #ede9fe;
       padding: 20px 20px 16px;
     }
-    .sidebar-top .sidebar-logo-img {
-      height: 64px; object-fit: contain;
-      filter: drop-shadow(0 0 8px rgba(124,58,237,.25));
-    }
-    .close-menu {
-      background: #f3f0ff !important;
-      color: #7c3aed !important;
-    }
+    .sidebar-top .sidebar-logo-img { height: 64px; object-fit: contain; filter: drop-shadow(0 0 8px rgba(124,58,237,.25)); }
+    .close-menu { background: #f3f0ff !important; color: #7c3aed !important; }
 
-    /* Botones del menú — texto oscuro sobre fondo blanco */
-    .menu button {
-      color: #374151 !important;
-      font-weight: 600 !important;
-    }
-    .menu button:hover:not(.tab-active) {
-      background: #f5f3ff !important;
-      color: #7c3aed !important;
-    }
+    .menu button { color: #374151 !important; font-weight: 600 !important; }
+    .menu button:hover:not(.tab-active) { background: #f5f3ff !important; color: #7c3aed !important; }
 
-    /* Tab activo violeta */
     .tab-active {
       background: linear-gradient(135deg, #7c3aed, #a78bfa) !important;
       color: white !important;
       box-shadow: 0 4px 16px rgba(124,58,237,.35) !important;
     }
 
-    /* Botones descargar/cargar datos */
-    .sidebar-actions-wrap {
-      border-top: 1px solid #ede9fe;
-      margin-top: 10px;
-      padding-top: 10px;
-    }
-    .sidebar-actions-wrap button {
-      font-size: 13px !important;
-    }
+    .sidebar-actions-wrap { border-top: 1px solid #ede9fe; margin-top: 10px; padding-top: 10px; }
+    .sidebar-actions-wrap button { font-size: 13px !important; }
 
-    /* Scrollbar sutil */
     ::-webkit-scrollbar { width: 5px; }
     ::-webkit-scrollbar-thumb { background: #ddd6fe; border-radius: 3px; }
   </style>
@@ -168,9 +129,7 @@
   <!-- SPLASH -->
   <div id="splash">
     <img src="./logo.png" alt="OneShop" />
-    <div class="dot-loader">
-      <span></span><span></span><span></span>
-    </div>
+    <div class="dot-loader"><span></span><span></span><span></span></div>
   </div>
 
   <!-- BANNER INSTALAR -->
@@ -211,6 +170,7 @@
         <button id="tab4" onclick="showTab(4)">💰 Ventas</button>
         <button id="tab5" onclick="showTab(5)">💵 Pagos</button>
         <button id="tab6" onclick="showTab(6)">📊 Historial</button>
+        <button id="tab7" onclick="showTab(7)">📋 Pedidos</button>
 
         <div class="sidebar-actions-wrap">
           <button
@@ -265,7 +225,7 @@
       const s = document.getElementById('splash');
       if (s) { s.style.opacity = '0'; setTimeout(() => s.remove(), 420); }
     }
-    setTimeout(ocultarSplash, 4500);   // fallback
+    setTimeout(ocultarSplash, 4500);
     window._ocultarSplash = ocultarSplash;
 
     // ── Service Worker ────────────────────────────────

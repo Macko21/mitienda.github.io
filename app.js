@@ -7,7 +7,9 @@ let db = {
   productos: JSON.parse(localStorage.getItem('productos')) || [],
   ventas: JSON.parse(localStorage.getItem('ventas')) || [],
   pagos: JSON.parse(localStorage.getItem('pagos')) || [],
-  ventaCounter: parseInt(localStorage.getItem('ventaCounter')) || 0
+  pedidos: JSON.parse(localStorage.getItem('pedidos')) || [],
+  ventaCounter: parseInt(localStorage.getItem('ventaCounter')) || 0,
+  pedidoCounter: parseInt(localStorage.getItem('pedidoCounter')) || 0
 };
 
 let carrito = [];
@@ -51,26 +53,51 @@ function guardarImagenEnCache(productoId, base64) {
 inicializarCacheImagenes();
 
 // ===============================
-// GUARDAR DB
+// GUARDAR DB — FIX: imágenes se guardan solo en IndexedDB/localStorage, NO en Firebase
 // ===============================
 
 function saveDB() {
+  // Guardar pedidos en localStorage siempre
+  localStorage.setItem('pedidos', JSON.stringify(db.pedidos));
+  localStorage.setItem('pedidoCounter', db.pedidoCounter.toString());
+
   if (window.firebaseDB) {
+    // ── Antes de subir a Firebase, quitamos las fotos base64 de productos
+    //    para no exceder el límite (~10 MB). Las fotos se guardan en IndexedDB.
+    const productosParaFirebase = db.productos.map(p => {
+      const { foto, ...resto } = p;
+      return resto; // sin el campo foto
+    });
+
     window.firebaseDB.ref('tienda').set({
       clientes: db.clientes,
-      productos: db.productos,
+      productos: productosParaFirebase,   // sin imágenes
       ventas: db.ventas,
       pagos: db.pagos,
+      pedidos: db.pedidos,
       ventaCounter: db.ventaCounter,
+      pedidoCounter: db.pedidoCounter,
       ultimaActualizacion: new Date().toISOString()
     }).catch(error => {
       console.error('Error guardando en Firebase:', error);
-      localStorage.setItem('clientes', JSON.stringify(db.clientes));
-      localStorage.setItem('productos', JSON.stringify(db.productos));
-      localStorage.setItem('ventas', JSON.stringify(db.ventas));
-      localStorage.setItem('pagos', JSON.stringify(db.pagos));
-      localStorage.setItem('ventaCounter', db.ventaCounter.toString());
     });
+
+    // Guardar el resto también en localStorage como backup
+    localStorage.setItem('clientes', JSON.stringify(db.clientes));
+    localStorage.setItem('ventas', JSON.stringify(db.ventas));
+    localStorage.setItem('pagos', JSON.stringify(db.pagos));
+    localStorage.setItem('ventaCounter', db.ventaCounter.toString());
+
+    // Guardar productos CON fotos en localStorage (solo este dispositivo)
+    localStorage.setItem('productos', JSON.stringify(db.productos));
+
+  } else {
+    // Sin Firebase: todo a localStorage
+    localStorage.setItem('clientes', JSON.stringify(db.clientes));
+    localStorage.setItem('productos', JSON.stringify(db.productos));
+    localStorage.setItem('ventas', JSON.stringify(db.ventas));
+    localStorage.setItem('pagos', JSON.stringify(db.pagos));
+    localStorage.setItem('ventaCounter', db.ventaCounter.toString());
   }
 }
 
@@ -80,10 +107,29 @@ function cargarDatosFirebase() {
     const datos = snapshot.val();
     if (datos) {
       db.clientes = datos.clientes || [];
-      db.productos = datos.productos || [];
       db.ventas = datos.ventas || [];
       db.pagos = datos.pagos || [];
+      db.pedidos = datos.pedidos || [];
       db.ventaCounter = datos.ventaCounter || 0;
+      db.pedidoCounter = datos.pedidoCounter || 0;
+
+      // Para productos: Firebase trae los datos sin foto.
+      // Fusionamos con los productos locales (que sí tienen foto).
+      const productosFirebase = datos.productos || [];
+      const productosLocales = JSON.parse(localStorage.getItem('productos') || '[]');
+
+      db.productos = productosFirebase.map(pfb => {
+        const local = productosLocales.find(pl => pl.id == pfb.id);
+        return { ...pfb, foto: local?.foto || pfb.foto || null };
+      });
+
+      // Si hay productos locales nuevos (aún no sincronizados), conservarlos
+      productosLocales.forEach(pl => {
+        if (!db.productos.find(p => p.id == pl.id)) {
+          db.productos.push(pl);
+        }
+      });
+
       console.log('Datos sincronizados desde Firebase');
     }
   });
@@ -101,9 +147,11 @@ function toggleMenu() {
 // TABS
 // ===============================
 
+let currentTab = 0;
+
 function showTab(n) {
   currentTab = n;
-  for (let i = 0; i <= 6; i++) {
+  for (let i = 0; i <= 7; i++) {
     const btn = document.getElementById('tab' + i);
     if (btn) btn.classList.remove('tab-active');
   }
@@ -122,6 +170,7 @@ function showTab(n) {
       break;
     case 5: content.innerHTML = pagosHTML(); break;
     case 6: content.innerHTML = historialVentasHTML(); break;
+    case 7: content.innerHTML = pedidosHTML(); break;
   }
   const sidebar = document.getElementById('sidebar');
   if (sidebar) sidebar.classList.add('sidebar-hidden');
@@ -137,12 +186,10 @@ function dashboardHTML() {
   const total = db.ventas.reduce((a, v) => a + (v.total || 0), 0);
   const pendientes = db.ventas.filter(v => v.saldo > 0).length;
 
-  // ── Últimas 5 ventas (ordenadas por id desc) ──────────────────────────────
   const ultVentas = [...db.ventas]
     .sort((a, b) => (b.id || 0) - (a.id || 0))
     .slice(0, 5);
 
-  // ── Últimos 5 pagos (de historialPagos de todas las ventas) ───────────────
   const todosLosPagos = [];
   db.ventas.forEach(v => {
     if (v.historialPagos?.length) {
@@ -163,7 +210,6 @@ function dashboardHTML() {
       });
     }
   });
-  // Ordenar por fecha desc
   todosLosPagos.sort((a, b) => {
     const ta = typeof a.fecha === 'string' && a.fecha.includes('/') ? a.fecha : new Date(a.fecha).getTime();
     const tb = typeof b.fecha === 'string' && b.fecha.includes('/') ? b.fecha : new Date(b.fecha).getTime();
@@ -178,11 +224,12 @@ function dashboardHTML() {
     return isNaN(d) ? String(f) : d.toLocaleDateString('es-AR');
   };
 
-  // ── Total cobrado hoy ─────────────────────────────────────────────────────
   const hoy = new Date().toLocaleDateString('es-AR');
   const cobradoHoy = todosLosPagos
     .filter(p => fmtFecha(p.fecha) === hoy)
     .reduce((s, p) => s + p.monto, 0);
+
+  const pedidosPendientes = db.pedidos.filter(p => p.estado === 'pendiente').length;
 
   return `
     <div class="mb-8">
@@ -190,7 +237,6 @@ function dashboardHTML() {
       <p class="text-gray-500 mt-2">Resumen general del negocio</p>
     </div>
 
-    <!-- Stats principales -->
     <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6 mb-8">
       <div class="bg-gradient-to-r from-blue-600 to-blue-500 text-white p-6 rounded-3xl shadow-xl">
         <div class="flex items-center justify-between">
@@ -218,22 +264,31 @@ function dashboardHTML() {
       </div>
     </div>
 
-    <!-- Caja del día -->
-    <div class="bg-gradient-to-r from-purple-600 to-purple-500 text-white p-6 rounded-3xl shadow-xl mb-8">
-      <div class="flex items-center justify-between">
-        <div>
-          <p class="text-purple-200 text-sm font-semibold">CAJA DEL DÍA — ${hoy}</p>
-          <h2 class="text-4xl font-black mt-1">$${cobradoHoy.toLocaleString()}</h2>
-          <p class="text-purple-200 text-xs mt-1">Total cobrado hoy entre ventas y cuotas</p>
+    <!-- Caja del día + Pedidos pendientes -->
+    <div class="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-8">
+      <div class="bg-gradient-to-r from-purple-600 to-purple-500 text-white p-6 rounded-3xl shadow-xl">
+        <div class="flex items-center justify-between">
+          <div>
+            <p class="text-purple-200 text-sm font-semibold">CAJA DEL DÍA — ${hoy}</p>
+            <h2 class="text-4xl font-black mt-1">$${cobradoHoy.toLocaleString()}</h2>
+            <p class="text-purple-200 text-xs mt-1">Total cobrado hoy entre ventas y cuotas</p>
+          </div>
+          <div class="w-16 h-16 rounded-2xl bg-white/20 flex items-center justify-center text-3xl">🏪</div>
         </div>
-        <div class="w-16 h-16 rounded-2xl bg-white/20 flex items-center justify-center text-3xl">🏪</div>
+      </div>
+      <div class="bg-gradient-to-r from-amber-500 to-orange-400 text-white p-6 rounded-3xl shadow-xl cursor-pointer" onclick="showTab(7)">
+        <div class="flex items-center justify-between">
+          <div>
+            <p class="text-amber-100 text-sm font-semibold">PEDIDOS PENDIENTES</p>
+            <h2 class="text-4xl font-black mt-1">${pedidosPendientes}</h2>
+            <p class="text-amber-100 text-xs mt-1">Tocá para ver el listado</p>
+          </div>
+          <div class="w-16 h-16 rounded-2xl bg-white/20 flex items-center justify-center text-3xl">📋</div>
+        </div>
       </div>
     </div>
 
-    <!-- Últimas ventas + Últimos pagos -->
     <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
-
-      <!-- Últimas 5 ventas -->
       <div class="bg-white rounded-3xl shadow-xl p-6">
         <div class="flex items-center justify-between mb-5">
           <div>
@@ -282,7 +337,6 @@ function dashboardHTML() {
         }
       </div>
 
-      <!-- Últimos 5 pagos -->
       <div class="bg-white rounded-3xl shadow-xl p-6">
         <div class="flex items-center justify-between mb-5">
           <div>
@@ -322,7 +376,6 @@ function dashboardHTML() {
             </div>`
         }
       </div>
-
     </div>
   `;
 }
@@ -474,7 +527,8 @@ function abrirFormularioProducto(prod = null) {
       <div class="mb-4">
         <label class="block text-sm font-bold text-gray-700 mb-2">Imagen del producto</label>
         <input id="fotoInput" type="file" accept="image/*" class="w-full p-3 border border-gray-300 rounded-xl">
-        ${prod?.foto ? `<p class="text-xs text-gray-500 mt-2">✓ Imagen actual guardada</p>` : ''}
+        ${prod?.foto ? `<p class="text-xs text-green-600 mt-2 font-semibold">✓ Imagen guardada en este dispositivo</p>` : ''}
+        <p class="text-xs text-gray-400 mt-1">⚠️ Las imágenes se guardan localmente en este dispositivo</p>
       </div>
 
       <div class="grid grid-cols-2 gap-4 mb-4">
@@ -494,7 +548,6 @@ function abrirFormularioProducto(prod = null) {
         <label class="block text-sm font-bold text-gray-700 mb-3">Precios por cuota</label>
         <div class="grid grid-cols-2 gap-3">
 
-          <!-- QUINCENAL PRIMERO -->
           <div class="bg-purple-50 p-3 rounded-xl border border-purple-200 col-span-2">
             <label class="text-xs text-purple-700 font-semibold block mb-2">🗓 Quincenal (valor por quincena — 2 pagos en total)</label>
             <input id="c12" type="number" placeholder="$0" value="${prod?.preciosCuotas?.[12] || ''}"
@@ -563,12 +616,33 @@ function guardarProducto(id) {
   if (!nombre) return Swal.fire({ icon: 'warning', title: 'Ingrese nombre' });
   const file = document.getElementById('fotoInput').files[0];
   if (file) {
-    const reader = new FileReader();
-    reader.onload = e => saveProductoFinal(id, nombre, e.target.result);
-    reader.readAsDataURL(file);
+    // Comprimir imagen antes de guardar para no exceder límites
+    comprimirImagen(file, 800, 0.75).then(base64 => {
+      saveProductoFinal(id, nombre, base64);
+    });
   } else {
     saveProductoFinal(id, nombre, null);
   }
+}
+
+// ── Comprime imagen a maxWidth px y calidad q (0-1) ─────────────────────────
+function comprimirImagen(file, maxWidth, calidad) {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let w = img.width, h = img.height;
+        if (w > maxWidth) { h = Math.round(h * maxWidth / w); w = maxWidth; }
+        canvas.width = w; canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL('image/jpeg', calidad));
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
 }
 
 function saveProductoFinal(id, nombre, foto) {
@@ -579,7 +653,7 @@ function saveProductoFinal(id, nombre, foto) {
     precioContado: Number(document.getElementById('precioContado').value) || 0,
     stock: Number(document.getElementById('stock').value) || 0,
     preciosCuotas: {
-      12: Number(document.getElementById('c12').value) || 0,  // Quincenal
+      12: Number(document.getElementById('c12').value) || 0,
       4:  Number(document.getElementById('c4').value)  || 0,
       6:  Number(document.getElementById('c6').value)  || 0,
       8:  Number(document.getElementById('c8').value)  || 0,
@@ -597,7 +671,21 @@ function saveProductoFinal(id, nombre, foto) {
   } else {
     db.productos.push(producto);
   }
-  saveDB(); cerrarModal(); showTab(2);
+
+  // Guardar localmente primero (con foto)
+  localStorage.setItem('productos', JSON.stringify(db.productos));
+
+  // Luego sincronizar con Firebase (sin fotos)
+  saveDB();
+
+  cerrarModal();
+  showTab(2);
+
+  Swal.fire({
+    icon: 'success', title: '¡Artículo guardado!',
+    text: 'Los datos se guardaron correctamente',
+    toast: true, position: 'top-end', timer: 2000, showConfirmButton: false
+  });
 }
 
 function editarProducto(id) { abrirFormularioProducto(db.productos.find(p => p.id == id)); }
@@ -659,7 +747,7 @@ function catalogoHTML() {
 }
 
 // ===============================
-// EXPORTAR PDF
+// EXPORTAR PDF CATALOGO
 // ===============================
 
 async function exportarCatalogoPDF() {
@@ -845,7 +933,6 @@ function calcularTotal() {
     if (cuotas === 1) {
       precio = item.precioContado;
     } else if (esQuincenal) {
-      // Quincenal: precio por quincena × 2 quincenas
       precio = (item.preciosCuotas?.[12] || 0) * 2;
     } else {
       precio = (item.preciosCuotas?.[cuotas] || 0) * cuotas;
@@ -857,7 +944,6 @@ function calcularTotal() {
   const saldoRestante = Math.max(0, total - entrega);
   const valorCuota = cuotasTotalesReales > 1 ? Math.ceil(saldoRestante / cuotasTotalesReales) : saldoRestante;
 
-  // Etiqueta dinámica
   const labelEl = document.getElementById('labelPagoCuota');
   if (labelEl) {
     labelEl.textContent = esQuincenal ? 'Pago por quincena' : cuotas == 1 ? 'Pago único' : 'Pago por cuota';
@@ -881,8 +967,6 @@ function finalizarVenta() {
   const entrega = Number(document.getElementById('entregaInput').value || 0);
   const esQuincenal = cuotasSelect === 12;
 
-  // Para quincenal: son SIEMPRE 2 quincenas, el precio guardado en [12] es el valor POR quincena
-  // Para cuotas normales: cuotasTotales = el número seleccionado
   const cuotasTotalesReales = esQuincenal ? 2 : cuotasSelect;
 
   let total = 0;
@@ -891,15 +975,12 @@ function finalizarVenta() {
   carrito.forEach(item => {
     let precioUnitario, subtotal;
     if (cuotasSelect === 1) {
-      // Contado
       precioUnitario = item.precioContado;
       subtotal = precioUnitario * item.cantidad;
     } else if (esQuincenal) {
-      // Quincenal: precioUnitario = valor por quincena, total = quincena * 2
       precioUnitario = item.preciosCuotas?.[12] || item.precioContado;
       subtotal = precioUnitario * 2 * item.cantidad;
     } else {
-      // Cuotas normales: precioUnitario = valor por cuota, total = cuota * n
       precioUnitario = item.preciosCuotas?.[cuotasSelect] || item.precioContado;
       subtotal = precioUnitario * cuotasSelect * item.cantidad;
     }
@@ -908,7 +989,6 @@ function finalizarVenta() {
   });
 
   const saldoRestante = Math.max(0, total - entrega);
-  // valorCuota = cuánto se paga en cada quincena/cuota
   const valorCuota = cuotasTotalesReales > 1 ? Math.ceil(saldoRestante / cuotasTotalesReales) : saldoRestante;
 
   db.ventaCounter++;
@@ -918,7 +998,7 @@ function finalizarVenta() {
     clienteNombre: cliente.nombre,
     items: itemsVenta, total, entrega,
     saldoOriginal: saldoRestante, valorCuota,
-    cuotasTotales: cuotasTotalesReales,   // 2 para quincenal, N para cuotas
+    cuotasTotales: cuotasTotalesReales,
     cuotasPagadas: cuotasSelect === 1 ? 1 : 0,
     saldo: saldoRestante, pagado: entrega,
     esQuincenal
@@ -933,7 +1013,7 @@ function finalizarVenta() {
   saveDB();
   carrito = [];
 
-  const labelCuota = esQuincenal ? 'Quincenal' : `${cuotas} cuotas de`;
+  const labelCuota = esQuincenal ? 'Quincenal' : `${cuotasTotalesReales} cuotas de`;
   Swal.fire({
     icon: 'success', title: 'Venta registrada correctamente',
     html: `<div style="text-align:left">
@@ -1009,7 +1089,6 @@ function pagosHTML() {
               <button onclick="eliminarVentaPendiente(${v.id})" class="bg-red-600 hover:bg-red-700 text-white py-4 rounded-2xl font-semibold transition">🗑️ Eliminar Venta</button>
             </div>
             ${(() => {
-              // Construir lista de pagos para mostrar
               let pagos = [];
               if (v.historialPagos?.length) {
                 pagos = v.historialPagos;
@@ -1018,13 +1097,11 @@ function pagosHTML() {
               } else if (v.entrega > 0) {
                 pagos = [{ monto: v.entrega, fecha: v.fecha }];
               }
-              // Si aún no hay pagos pero la venta existe, igual mostrar botón con monto total
               if (!pagos.length) {
                 pagos = [{ monto: v.total, fecha: v.fecha }];
               }
               const fmtFecha = f => {
                 if (!f) return '';
-                // Si ya es string tipo "15/5/2025" lo devolvemos directo
                 if (typeof f === 'string' && f.includes('/')) return f;
                 const d = new Date(f);
                 return isNaN(d) ? String(f) : d.toLocaleDateString('es-AR');
@@ -1098,7 +1175,6 @@ function registrarPago(id) {
     cancelButtonText: 'Cancelar',
     confirmButtonColor: '#16a34a',
     didOpen: () => {
-      // Seleccionar el texto del input para fácil edición
       const input = document.getElementById('montoPagoInput');
       if (input) { input.focus(); input.select(); }
     },
@@ -1126,7 +1202,6 @@ function registrarPago(id) {
     venta.cuotasPagadas = venta.cuotasTotales > 1 ? venta.historialPagos.length : 1;
     saveDB();
 
-    // NO descarga automática — mostrar modal con opciones
     mostrarModalPostPago(venta, montoPagado);
   });
 }
@@ -1242,7 +1317,6 @@ function eliminarVentaPendiente(id) {
 // COMPROBANTE PDF
 // ===============================
 
-// ── Construye el HTML del comprobante (reutilizable) ──────────────────────────
 function buildComprobanteHTML(venta, monto) {
   const ahora = new Date();
   const fecha = ahora.toLocaleDateString('es-AR');
@@ -1275,58 +1349,37 @@ function buildComprobanteHTML(venta, monto) {
   });
 
   return `<div style="font-family:Arial,Helvetica,sans-serif;width:520px;padding:32px;background:#fff;color:#1f2937;">
-
   <div style="text-align:center;padding-bottom:16px;border-bottom:3px solid #7c3aed;margin-bottom:20px;">
     <h1 style="margin:0;font-size:22px;color:#7c3aed;letter-spacing:1px;">COMPROBANTE DE PAGO</h1>
     <p style="margin:4px 0 0;font-size:12px;color:#6b7280;">OneShop</p>
   </div>
-
   <table style="width:100%;margin-bottom:16px;">
-    <tr>
-      <td style="font-size:13px;color:#6b7280;">Fecha:</td>
-      <td style="font-size:13px;font-weight:bold;text-align:right;">${fecha}</td>
-    </tr>
-    <tr>
-      <td style="font-size:13px;color:#6b7280;">Hora:</td>
-      <td style="font-size:13px;text-align:right;">${hora}</td>
-    </tr>
-    <tr>
-      <td style="font-size:13px;color:#6b7280;">Cliente:</td>
-      <td style="font-size:13px;font-weight:bold;text-align:right;">${venta.clienteNombre}</td>
-    </tr>
-    <tr>
-      <td style="font-size:13px;color:#6b7280;">N° Venta:</td>
-      <td style="font-size:13px;text-align:right;">#${fmtId(venta.id)}</td>
-    </tr>
+    <tr><td style="font-size:13px;color:#6b7280;">Fecha:</td><td style="font-size:13px;font-weight:bold;text-align:right;">${fecha}</td></tr>
+    <tr><td style="font-size:13px;color:#6b7280;">Hora:</td><td style="font-size:13px;text-align:right;">${hora}</td></tr>
+    <tr><td style="font-size:13px;color:#6b7280;">Cliente:</td><td style="font-size:13px;font-weight:bold;text-align:right;">${venta.clienteNombre}</td></tr>
+    <tr><td style="font-size:13px;color:#6b7280;">N° Venta:</td><td style="font-size:13px;text-align:right;">#${fmtId(venta.id)}</td></tr>
   </table>
-
   <table style="width:100%;border-collapse:collapse;margin-bottom:16px;">
-    <thead>
-      <tr style="background:#f3f4f6;">
-        <th style="padding:6px 8px;text-align:left;font-size:12px;color:#374151;border-bottom:2px solid #d1d5db;">Artículo</th>
-        <th style="padding:6px 8px;text-align:center;font-size:12px;color:#374151;border-bottom:2px solid #d1d5db;">Cant.</th>
-        <th style="padding:6px 8px;text-align:right;font-size:12px;color:#374151;border-bottom:2px solid #d1d5db;">Precio</th>
-        <th style="padding:6px 8px;text-align:right;font-size:12px;color:#374151;border-bottom:2px solid #d1d5db;">Subtotal</th>
-      </tr>
-    </thead>
+    <thead><tr style="background:#f3f4f6;">
+      <th style="padding:6px 8px;text-align:left;font-size:12px;color:#374151;border-bottom:2px solid #d1d5db;">Artículo</th>
+      <th style="padding:6px 8px;text-align:center;font-size:12px;color:#374151;border-bottom:2px solid #d1d5db;">Cant.</th>
+      <th style="padding:6px 8px;text-align:right;font-size:12px;color:#374151;border-bottom:2px solid #d1d5db;">Precio</th>
+      <th style="padding:6px 8px;text-align:right;font-size:12px;color:#374151;border-bottom:2px solid #d1d5db;">Subtotal</th>
+    </tr></thead>
     <tbody style="font-size:12px;">${itemsRows}</tbody>
   </table>
-
   <div style="background:#f5f3ff;border-left:4px solid #7c3aed;padding:12px 14px;margin-bottom:14px;border-radius:0 6px 6px 0;">
     <p style="margin:0;font-size:12px;color:#6b7280;">Monto pagado en esta transacción</p>
     <p style="margin:4px 0 0;font-size:24px;font-weight:900;color:#16a34a;">$${monto.toLocaleString()}</p>
   </div>
-
   <div style="background:#f9fafb;padding:12px 14px;border-radius:6px;margin-bottom:16px;font-size:12px;">
     <p style="margin:0 0 6px;font-weight:bold;color:#374151;">ESTADO DE PAGOS</p>
     ${cuotasInfo}
   </div>
-
   <div style="text-align:center;padding-top:16px;border-top:1px solid #e5e7eb;">
     <p style="margin:0;font-size:14px;font-weight:bold;color:#7c3aed;">¡Muchas gracias por tu compra!</p>
     <p style="margin:4px 0 0;font-size:11px;color:#9ca3af;">Este comprobante es válido como recibo de pago</p>
   </div>
-
 </div>`;
 }
 
@@ -1343,7 +1396,7 @@ function descargarPDFComprobante(venta, monto) {
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
     const esQuincenal = venta.esQuincenal || false;
-    const W = 210; // ancho A4
+    const W = 210;
     const margen = 20;
     const ancho = W - margen * 2;
     let y = 20;
@@ -1356,7 +1409,6 @@ function descargarPDFComprobante(venta, monto) {
     const colorFondoGris  = [243, 244, 246];
     const colorFondoViola = [245, 243, 255];
 
-    // ── Header ─────────────────────────────────────────────────────────────
     doc.setFillColor(...colorVioleta);
     doc.rect(margen, y, ancho, 0.8, 'F');
     y += 4;
@@ -1377,7 +1429,6 @@ function descargarPDFComprobante(venta, monto) {
     doc.rect(margen, y, ancho, 0.4, 'F');
     y += 8;
 
-    // ── Fecha / Cliente ─────────────────────────────────────────────────────
     const now = new Date();
     const fecha = now.toLocaleDateString('es-AR');
     const hora  = now.toLocaleTimeString('es-AR');
@@ -1415,8 +1466,6 @@ function descargarPDFComprobante(venta, monto) {
     doc.text('#' + fmtId(venta.id), col2 + 22, y);
     y += 10;
 
-    // ── Tabla artículos ──────────────────────────────────────────────────────
-    // Encabezado
     doc.setFillColor(...colorFondoGris);
     doc.rect(margen, y - 4, ancho, 8, 'F');
     doc.setFont('helvetica', 'bold');
@@ -1432,7 +1481,6 @@ function descargarPDFComprobante(venta, monto) {
     doc.line(margen, y, margen + ancho, y);
     y += 5;
 
-    // Filas
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9);
     venta.items.forEach((item, i) => {
@@ -1441,7 +1489,6 @@ function descargarPDFComprobante(venta, monto) {
         doc.rect(margen, y - 4, ancho, 7, 'F');
       }
       doc.setTextColor(...colorNegro);
-      // Nombre — recortar si es muy largo
       const nombreCorto = item.nombre.length > 38 ? item.nombre.substring(0, 36) + '…' : item.nombre;
       doc.text(nombreCorto, col1 + 2, y);
       doc.text(String(item.cantidad), margen + ancho * 0.60, y, { align: 'center' });
@@ -1456,7 +1503,6 @@ function descargarPDFComprobante(venta, monto) {
     doc.line(margen, y, margen + ancho, y);
     y += 8;
 
-    // ── Monto pagado ─────────────────────────────────────────────────────────
     doc.setFillColor(...colorFondoViola);
     doc.rect(margen, y - 4, ancho, 18, 'F');
     doc.setFillColor(...colorVioleta);
@@ -1473,7 +1519,6 @@ function descargarPDFComprobante(venta, monto) {
     doc.text('$' + monto.toLocaleString(), col1 + 4, y + 12);
     y += 24;
 
-    // ── Estado de pagos ───────────────────────────────────────────────────────
     doc.setFillColor(...colorFondoGris);
     doc.rect(margen, y - 4, ancho, venta.cuotasTotales === 1 ? 10 : 22, 'F');
 
@@ -1509,7 +1554,6 @@ function descargarPDFComprobante(venta, monto) {
     }
     y += venta.cuotasTotales === 1 ? 10 : 20;
 
-    // ── Footer ────────────────────────────────────────────────────────────────
     doc.setDrawColor(229, 231, 235);
     doc.line(margen, y, margen + ancho, y);
     y += 8;
@@ -1525,18 +1569,15 @@ function descargarPDFComprobante(venta, monto) {
     doc.setTextColor(...colorGris);
     doc.text('Este comprobante es válido como recibo de pago', W / 2, y, { align: 'center' });
 
-    // ── Guardar ───────────────────────────────────────────────────────────────
     const nombreArchivo = `Comprobante-${fmtId(venta.id)}-${venta.clienteNombre.replace(/\s+/g, '-')}.pdf`;
     doc.save(nombreArchivo);
   });
 }
 
-// ── Funciones llamadas desde los botones del modal post-pago ──────────────────
 window.descargarComprobanteUnico = function(ventaId, monto) {
   const venta = db.ventas.find(v => v.id == ventaId);
   if (!venta) return;
   descargarPDFComprobante(venta, monto);
-  // No cierra el modal — el usuario puede seguir enviando por WhatsApp
 };
 
 window.wspComprobanteUnico = function(ventaId, monto) {
@@ -1555,7 +1596,6 @@ window.wspComprobanteUnico = function(ventaId, monto) {
   window.open(`https://wa.me/${numeroWhatsApp}?text=${encodeURIComponent(msg)}`, '_blank');
 };
 
-// ── Mantener compatibilidad con llamadas existentes (historial, etc.) ──────────
 function generarComprobantesPago(venta, monto) {
   descargarPDFComprobante(venta, monto);
 }
@@ -1631,8 +1671,7 @@ function historialVentasHTML() {
               const fmtFecha = f => {
                 if (!f) return '';
                 if (typeof f === 'string' && f.includes('/')) return f;
-                const d = new Date(f);
-                return isNaN(d) ? String(f) : d.toLocaleDateString('es-AR');
+                const d = new Date(f); return isNaN(d) ? String(f) : d.toLocaleDateString('es-AR');
               };
               return `
               <div class="mt-4 pt-4 border-t border-green-100">
@@ -1665,6 +1704,364 @@ function historialVentasHTML() {
 }
 
 // ===============================
+// PEDIDOS
+// ===============================
+
+function pedidosHTML() {
+  const pendientes = db.pedidos.filter(p => p.estado === 'pendiente');
+  const recibidos  = db.pedidos.filter(p => p.estado === 'recibido');
+
+  return `
+    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8">
+      <div>
+        <h1 class="text-3xl font-black text-gray-800">Pedidos</h1>
+        <p class="text-gray-500">Registrá lo que necesitás reponer</p>
+      </div>
+      <div class="flex gap-3 flex-wrap">
+        <button onclick="wspListaPedidos()"
+          class="bg-green-600 hover:bg-green-700 text-white px-5 py-3 rounded-2xl font-bold shadow-lg flex items-center gap-2">
+          📲 Enviar lista por WhatsApp
+        </button>
+        <button onclick="abrirFormularioPedido()"
+          class="bg-amber-500 hover:bg-amber-600 text-white px-5 py-3 rounded-2xl font-bold shadow-lg flex items-center gap-2">
+          + Nuevo Pedido
+        </button>
+      </div>
+    </div>
+
+    <!-- Resumen -->
+    <div class="grid grid-cols-2 gap-4 mb-8">
+      <div class="bg-gradient-to-r from-amber-500 to-orange-400 text-white p-5 rounded-3xl shadow-xl">
+        <p class="text-amber-100 text-sm">Pedidos pendientes</p>
+        <h2 class="text-4xl font-black mt-1">${pendientes.length}</h2>
+      </div>
+      <div class="bg-gradient-to-r from-green-600 to-emerald-500 text-white p-5 rounded-3xl shadow-xl">
+        <p class="text-green-100 text-sm">Pedidos recibidos</p>
+        <h2 class="text-4xl font-black mt-1">${recibidos.length}</h2>
+      </div>
+    </div>
+
+    <!-- Pendientes -->
+    ${pendientes.length > 0 ? `
+      <div class="mb-8">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-xl font-black text-gray-800">📋 Pendientes de recibir</h2>
+          ${pendientes.length > 0 ? `
+            <button onclick="marcarTodosRecibidos()"
+              class="text-xs bg-green-100 hover:bg-green-200 text-green-700 px-3 py-2 rounded-xl font-bold transition">
+              ✓ Marcar todos como recibidos
+            </button>
+          ` : ''}
+        </div>
+        <div class="space-y-4">
+          ${pendientes.map(p => renderPedido(p)).join('')}
+        </div>
+      </div>
+    ` : `
+      <div class="bg-white rounded-3xl p-10 text-center shadow-sm border border-dashed border-gray-200 mb-8">
+        <div class="text-5xl mb-3">📭</div>
+        <p class="text-gray-400 font-semibold">No hay pedidos pendientes</p>
+        <p class="text-gray-300 text-sm mt-1">¡Todo en orden!</p>
+      </div>
+    `}
+
+    <!-- Recibidos -->
+    ${recibidos.length > 0 ? `
+      <div>
+        <h2 class="text-xl font-black text-gray-800 mb-4">✅ Recibidos</h2>
+        <div class="space-y-3">
+          ${recibidos.map(p => renderPedido(p)).join('')}
+        </div>
+      </div>
+    ` : ''}
+  `;
+}
+
+function renderPedido(p) {
+  const esPendiente = p.estado === 'pendiente';
+  const fecha = p.fecha || '';
+  const itemsHTML = p.items.map(i => `
+    <div class="flex justify-between items-center py-1.5 border-b border-gray-50 last:border-0">
+      <span class="text-sm text-gray-700 font-medium">${i.nombre}</span>
+      <span class="text-xs font-bold text-gray-500 bg-gray-100 px-2 py-0.5 rounded-lg">x${i.cantidad}</span>
+    </div>
+  `).join('');
+
+  return `
+    <div class="bg-white rounded-3xl shadow-sm border ${esPendiente ? 'border-amber-100' : 'border-green-100'} p-5">
+      <div class="flex items-start justify-between gap-3 mb-3">
+        <div>
+          <div class="flex items-center gap-2 flex-wrap">
+            <span class="text-xs font-black ${esPendiente ? 'text-amber-600 bg-amber-50 border-amber-200' : 'text-green-600 bg-green-50 border-green-200'} border px-2 py-0.5 rounded-lg">
+              #${fmtId(p.id)}
+            </span>
+            ${p.clienteNombre ? `<span class="text-sm font-bold text-gray-700">👤 ${p.clienteNombre}</span>` : ''}
+            <span class="text-xs ${esPendiente ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700'} px-2 py-0.5 rounded-full font-bold">
+              ${esPendiente ? '⏳ Pendiente' : '✅ Recibido'}
+            </span>
+          </div>
+          ${p.proveedor ? `<p class="text-xs text-gray-400 mt-1">🏭 ${p.proveedor}</p>` : ''}
+          ${fecha ? `<p class="text-xs text-gray-400 mt-0.5">📅 ${fecha}</p>` : ''}
+          ${p.notas ? `<p class="text-xs text-gray-500 mt-1 italic">💬 ${p.notas}</p>` : ''}
+        </div>
+        <div class="flex gap-2">
+          <button onclick="editarPedido(${p.id})" class="w-9 h-9 rounded-xl bg-blue-50 text-blue-600 text-sm flex items-center justify-center hover:bg-blue-100 transition">✏️</button>
+          <button onclick="eliminarPedido(${p.id})" class="w-9 h-9 rounded-xl bg-red-50 text-red-600 text-sm flex items-center justify-center hover:bg-red-100 transition">🗑️</button>
+        </div>
+      </div>
+
+      <div class="bg-gray-50 rounded-2xl p-3 mb-3">
+        ${itemsHTML}
+      </div>
+
+      ${esPendiente ? `
+        <div class="flex gap-2 mt-2">
+          <button onclick="marcarPedidoRecibido(${p.id})"
+            class="flex-1 bg-green-600 hover:bg-green-700 text-white py-3 rounded-2xl font-semibold text-sm transition">
+            ✅ Marcar como recibido
+          </button>
+          <button onclick="wspPedidoIndividual(${p.id})"
+            class="bg-green-50 hover:bg-green-100 text-green-700 border border-green-200 px-4 py-3 rounded-2xl font-semibold text-sm transition">
+            📲
+          </button>
+        </div>
+      ` : ''}
+    </div>
+  `;
+}
+
+function abrirFormularioPedido(pedidoExistente = null) {
+  const itemsIniciales = pedidoExistente?.items || [{ nombre: '', cantidad: 1 }];
+
+  const buildItemsHTML = (items) => items.map((item, i) => `
+    <div class="flex gap-2 mb-2 item-row" data-index="${i}">
+      <input
+        class="flex-1 p-2.5 border border-gray-300 rounded-xl text-sm focus:outline-none focus:border-amber-400 item-nombre"
+        placeholder="Nombre del producto"
+        value="${item.nombre || ''}"
+      >
+      <input
+        type="number"
+        min="1"
+        class="w-20 p-2.5 border border-gray-300 rounded-xl text-sm focus:outline-none focus:border-amber-400 item-cantidad"
+        placeholder="Cant."
+        value="${item.cantidad || 1}"
+      >
+      <button onclick="quitarItemPedido(this)" class="w-9 h-9 rounded-xl bg-red-100 text-red-600 flex items-center justify-center text-lg flex-shrink-0">×</button>
+    </div>
+  `).join('');
+
+  document.getElementById('modalContent').innerHTML = `
+    <div class="p-6 max-h-[90vh] overflow-y-auto">
+      <h2 class="text-2xl font-black mb-5">${pedidoExistente ? 'Editar Pedido' : 'Nuevo Pedido'}</h2>
+
+      <div class="mb-4">
+        <label class="block text-sm font-bold text-gray-700 mb-2">Cliente que lo pidió <span class="text-gray-400 font-normal">(opcional)</span></label>
+        <select id="pedidoCliente" class="w-full p-3 border border-gray-300 rounded-xl focus:outline-none focus:border-amber-400">
+          <option value="">Sin cliente específico</option>
+          ${db.clientes.map(c => `<option value="${c.nombre}" ${pedidoExistente?.clienteNombre === c.nombre ? 'selected' : ''}>${c.nombre}</option>`).join('')}
+        </select>
+      </div>
+
+      <div class="mb-4">
+        <label class="block text-sm font-bold text-gray-700 mb-2">Proveedor <span class="text-gray-400 font-normal">(opcional)</span></label>
+        <input id="pedidoProveedor" placeholder="Ej: Distribuidora XYZ" value="${pedidoExistente?.proveedor || ''}"
+          class="w-full p-3 border border-gray-300 rounded-xl focus:outline-none focus:border-amber-400">
+      </div>
+
+      <div class="mb-4">
+        <label class="block text-sm font-bold text-gray-700 mb-3">Productos a pedir</label>
+        <div id="itemsPedido">
+          ${buildItemsHTML(itemsIniciales)}
+        </div>
+        <button onclick="agregarItemPedido()"
+          class="mt-2 w-full py-2.5 border-2 border-dashed border-gray-300 rounded-xl text-gray-500 font-semibold text-sm hover:border-amber-400 hover:text-amber-600 transition">
+          + Agregar otro producto
+        </button>
+      </div>
+
+      <div class="mb-6">
+        <label class="block text-sm font-bold text-gray-700 mb-2">Notas <span class="text-gray-400 font-normal">(opcional)</span></label>
+        <textarea id="pedidoNotas" rows="2" placeholder="Ej: Pedir talla XL, color azul..."
+          class="w-full p-3 border border-gray-300 rounded-xl focus:outline-none focus:border-amber-400 resize-none text-sm">${pedidoExistente?.notas || ''}</textarea>
+      </div>
+
+      <div class="grid grid-cols-2 gap-4">
+        <button onclick="guardarPedido(${pedidoExistente ? pedidoExistente.id : 'null'})"
+          class="bg-amber-500 hover:bg-amber-600 text-white py-3 rounded-2xl font-bold transition">
+          Guardar Pedido
+        </button>
+        <button onclick="cerrarModal()" class="bg-gray-200 hover:bg-gray-300 py-3 rounded-2xl font-bold transition">
+          Cancelar
+        </button>
+      </div>
+    </div>
+  `;
+  document.getElementById('modal').classList.remove('hidden');
+}
+
+function agregarItemPedido() {
+  const container = document.getElementById('itemsPedido');
+  const index = container.querySelectorAll('.item-row').length;
+  const div = document.createElement('div');
+  div.className = 'flex gap-2 mb-2 item-row';
+  div.dataset.index = index;
+  div.innerHTML = `
+    <input class="flex-1 p-2.5 border border-gray-300 rounded-xl text-sm focus:outline-none focus:border-amber-400 item-nombre" placeholder="Nombre del producto">
+    <input type="number" min="1" value="1" class="w-20 p-2.5 border border-gray-300 rounded-xl text-sm focus:outline-none focus:border-amber-400 item-cantidad" placeholder="Cant.">
+    <button onclick="quitarItemPedido(this)" class="w-9 h-9 rounded-xl bg-red-100 text-red-600 flex items-center justify-center text-lg flex-shrink-0">×</button>
+  `;
+  container.appendChild(div);
+}
+
+function quitarItemPedido(btn) {
+  const row = btn.closest('.item-row');
+  const container = document.getElementById('itemsPedido');
+  if (container.querySelectorAll('.item-row').length > 1) {
+    row.remove();
+  } else {
+    Swal.fire({ icon: 'warning', title: 'Debe haber al menos un producto', toast: true, position: 'top-end', timer: 1500, showConfirmButton: false });
+  }
+}
+
+function guardarPedido(id) {
+  const rows = document.querySelectorAll('#itemsPedido .item-row');
+  const items = [];
+  rows.forEach(row => {
+    const nombre = row.querySelector('.item-nombre').value.trim();
+    const cantidad = parseInt(row.querySelector('.item-cantidad').value) || 1;
+    if (nombre) items.push({ nombre, cantidad });
+  });
+
+  if (items.length === 0) {
+    return Swal.fire({ icon: 'warning', title: 'Agregá al menos un producto' });
+  }
+
+  const pedido = {
+    id: id !== null ? id : (++db.pedidoCounter, db.pedidoCounter),
+    fecha: new Date().toLocaleDateString('es-AR'),
+    clienteNombre: document.getElementById('pedidoCliente').value || '',
+    proveedor: document.getElementById('pedidoProveedor').value.trim(),
+    notas: document.getElementById('pedidoNotas').value.trim(),
+    items,
+    estado: 'pendiente'
+  };
+
+  if (id !== null) {
+    const idx = db.pedidos.findIndex(p => p.id == id);
+    if (idx !== -1) {
+      pedido.estado = db.pedidos[idx].estado; // conservar estado
+      db.pedidos[idx] = pedido;
+    }
+  } else {
+    db.pedidoCounter = pedido.id;
+    db.pedidos.push(pedido);
+  }
+
+  saveDB();
+  cerrarModal();
+  showTab(7);
+
+  Swal.fire({
+    icon: 'success', title: 'Pedido guardado',
+    toast: true, position: 'top-end', timer: 2000, showConfirmButton: false
+  });
+}
+
+function editarPedido(id) {
+  abrirFormularioPedido(db.pedidos.find(p => p.id == id));
+}
+
+function eliminarPedido(id) {
+  Swal.fire({
+    title: '¿Eliminar pedido?', icon: 'warning',
+    showCancelButton: true, confirmButtonText: 'Eliminar',
+    cancelButtonText: 'Cancelar', confirmButtonColor: '#ef4444'
+  }).then(r => {
+    if (r.isConfirmed) {
+      db.pedidos = db.pedidos.filter(p => p.id != id);
+      saveDB();
+      showTab(7);
+    }
+  });
+}
+
+function marcarPedidoRecibido(id) {
+  const pedido = db.pedidos.find(p => p.id == id);
+  if (!pedido) return;
+  pedido.estado = 'recibido';
+  pedido.fechaRecibido = new Date().toLocaleDateString('es-AR');
+  saveDB();
+  showTab(7);
+  Swal.fire({ icon: 'success', title: '¡Pedido recibido!', toast: true, position: 'top-end', timer: 1800, showConfirmButton: false });
+}
+
+function marcarTodosRecibidos() {
+  Swal.fire({
+    title: '¿Marcar todos como recibidos?',
+    icon: 'question', showCancelButton: true,
+    confirmButtonText: 'Sí, todos', cancelButtonText: 'Cancelar',
+    confirmButtonColor: '#16a34a'
+  }).then(r => {
+    if (r.isConfirmed) {
+      db.pedidos.filter(p => p.estado === 'pendiente').forEach(p => {
+        p.estado = 'recibido';
+        p.fechaRecibido = new Date().toLocaleDateString('es-AR');
+      });
+      saveDB();
+      showTab(7);
+    }
+  });
+}
+
+// ── WhatsApp: lista completa de pedidos pendientes ────────────────────────────
+function wspListaPedidos() {
+  const pendientes = db.pedidos.filter(p => p.estado === 'pendiente');
+  if (pendientes.length === 0) {
+    return Swal.fire({ icon: 'info', title: 'No hay pedidos pendientes', text: 'Agregá pedidos primero.' });
+  }
+
+  const hoy = new Date().toLocaleDateString('es-AR');
+  let texto = `📋 *LISTA DE PEDIDOS — OneShop*\n📅 ${hoy}\n`;
+  texto += `${'─'.repeat(30)}\n\n`;
+
+  pendientes.forEach((p, i) => {
+    texto += `*${i + 1}. `;
+    if (p.clienteNombre) texto += `Cliente: ${p.clienteNombre} — `;
+    if (p.proveedor) texto += `Proveedor: ${p.proveedor}`;
+    texto += `*\n`;
+    p.items.forEach(item => {
+      texto += `   • ${item.nombre} × ${item.cantidad}\n`;
+    });
+    if (p.notas) texto += `   💬 ${p.notas}\n`;
+    texto += `\n`;
+  });
+
+  texto += `${'─'.repeat(30)}\n`;
+  texto += `Total: ${pendientes.length} pedido${pendientes.length !== 1 ? 's' : ''} pendiente${pendientes.length !== 1 ? 's' : ''}`;
+
+  window.open(`https://wa.me/?text=${encodeURIComponent(texto)}`, '_blank');
+}
+
+// ── WhatsApp: pedido individual ───────────────────────────────────────────────
+function wspPedidoIndividual(id) {
+  const p = db.pedidos.find(x => x.id == id);
+  if (!p) return;
+
+  let texto = `📦 *PEDIDO #${fmtId(p.id)}*\n`;
+  if (p.clienteNombre) texto += `👤 Cliente: ${p.clienteNombre}\n`;
+  if (p.proveedor) texto += `🏭 Proveedor: ${p.proveedor}\n`;
+  texto += `📅 ${p.fecha}\n\n`;
+  texto += `*Productos:*\n`;
+  p.items.forEach(item => {
+    texto += `• ${item.nombre} × ${item.cantidad}\n`;
+  });
+  if (p.notas) texto += `\n💬 ${p.notas}`;
+
+  window.open(`https://wa.me/?text=${encodeURIComponent(texto)}`, '_blank');
+}
+
+// ===============================
 // WHATSAPP
 // ===============================
 
@@ -1690,15 +2087,6 @@ function enviarComprobanteWhatsApp(venta, monto) {
 
   const texto = `COMPROBANTE DE PAGO\n==================\n\nFecha: ${ahora.toLocaleDateString('es-AR')}\nHora: ${ahora.toLocaleTimeString('es-AR')}\n\nCLIENTE: ${venta.clienteNombre}\nN° Venta: ${fmtId(venta.id)}\n\nARTICULOS PAGADOS:${itemsTexto}\n\nMONTO PAGADO: $${monto.toLocaleString()}\n\nESTADO DE PAGOS:\n${cuotasInfo}\n\n==================\nMuchas gracias por tu compra!\nEsperamos verte pronto`;
   window.open(`https://wa.me/?text=${encodeURIComponent(texto)}`, '_blank');
-}
-
-function enviarComprobanteWhatsAppCliente(venta, monto, cliente) {
-  generarComprobantesPago(venta, monto);
-  const numeroWhatsApp = normalizarNumeroWhatsApp(cliente.telefono);
-  if (!numeroWhatsApp) return Swal.fire({ icon: 'error', title: 'Número inválido', text: 'No se pudo procesar el número de teléfono del cliente' });
-  setTimeout(() => {
-    window.open(`https://wa.me/${numeroWhatsApp}?text=${encodeURIComponent(`Hola ${cliente.nombre}, te envío el comprobante de pago. El PDF se descargó automáticamente.`)}`, '_blank');
-  }, 1500);
 }
 
 window.descargarComprobantePago = function(ventaId, monto) {
@@ -1792,7 +2180,16 @@ function compartirPorWhatsApp() {
 // ===============================
 
 function descargarDatos() {
-  const datosExportar = { clientes: db.clientes, productos: db.productos, ventas: db.ventas, pagos: db.pagos, ventaCounter: db.ventaCounter, fechaExporto: new Date().toLocaleString('es-AR') };
+  const datosExportar = {
+    clientes: db.clientes,
+    productos: db.productos,
+    ventas: db.ventas,
+    pagos: db.pagos,
+    pedidos: db.pedidos,
+    ventaCounter: db.ventaCounter,
+    pedidoCounter: db.pedidoCounter,
+    fechaExporto: new Date().toLocaleString('es-AR')
+  };
   const json = JSON.stringify(datosExportar, null, 2);
   const blob = new Blob([json], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
@@ -1817,9 +2214,13 @@ function cargarDatos() {
           icon: 'warning', showCancelButton: true, confirmButtonText: 'Sí, reemplazar', cancelButtonText: 'Cancelar'
         }).then(result => {
           if (result.isConfirmed) {
-            db.clientes = datos.clientes || []; db.productos = datos.productos || [];
-            db.ventas = datos.ventas || []; db.pagos = datos.pagos || [];
+            db.clientes = datos.clientes || [];
+            db.productos = datos.productos || [];
+            db.ventas = datos.ventas || [];
+            db.pagos = datos.pagos || [];
+            db.pedidos = datos.pedidos || [];
             db.ventaCounter = datos.ventaCounter || 0;
+            db.pedidoCounter = datos.pedidoCounter || 0;
             saveDB();
             Swal.fire({ icon: 'success', title: 'Datos cargados', text: 'Los datos se han importado correctamente', confirmButtonText: 'Recargar app' }).then(() => location.reload());
           }
@@ -1855,7 +2256,6 @@ function descargarReporteVentas() {
     doc.text(`Generado: ${new Date().toLocaleString('es-AR')} · Total ventas: ${db.ventas.length}`, W/2, y+3, { align:'center' }); y += 10;
     doc.setFillColor(...CV); doc.rect(M, y, A, 0.4, 'F'); y += 6;
 
-    // Header tabla
     doc.setFillColor(...CFG); doc.rect(M, y-3, A, 7, 'F');
     doc.setFont('helvetica','bold'); doc.setFontSize(8); doc.setTextColor(...CN);
     doc.text('N°', M+2, y+1);
@@ -1886,7 +2286,6 @@ function descargarReporteVentas() {
       y += 7;
     });
 
-    // Totales
     y += 4;
     doc.setFillColor(...CFG); doc.rect(M, y-3, A, 10, 'F');
     doc.setFont('helvetica','bold'); doc.setFontSize(9); doc.setTextColor(...CN);
@@ -1918,7 +2317,6 @@ function descargarReportePagos() {
     let y = 18;
     const CV = [22,163,74], CN = [31,41,55], CG = [107,114,128], CFG = [243,244,246];
 
-    // Construir lista de pagos
     const todosPagos = [];
     db.ventas.forEach(v => {
       if (v.historialPagos?.length) {
@@ -1942,7 +2340,6 @@ function descargarReportePagos() {
     doc.text(`Generado: ${new Date().toLocaleString('es-AR')} · ${todosPagos.length} pagos registrados`, W/2, y+3, { align:'center' }); y += 10;
     doc.setFillColor(...CV); doc.rect(M, y, A, 0.4, 'F'); y += 6;
 
-    // Header
     doc.setFillColor(...CFG); doc.rect(M, y-3, A, 7, 'F');
     doc.setFont('helvetica','bold'); doc.setFontSize(8); doc.setTextColor(...CN);
     doc.text('N° Venta', M+2, y+1);
@@ -1965,7 +2362,6 @@ function descargarReportePagos() {
       y += 7;
     });
 
-    // Total
     y += 4;
     doc.setFillColor(...CFG); doc.rect(M, y-3, A, 10, 'F');
     doc.setFont('helvetica','bold'); doc.setFontSize(9); doc.setTextColor(...CN);
@@ -1998,10 +2394,26 @@ function esperarDatosFirebase() {
       const datos = snapshot.val();
       if (datos) {
         db.clientes = datos.clientes || [];
-        db.productos = datos.productos || [];
         db.ventas = datos.ventas || [];
         db.pagos = datos.pagos || [];
+        db.pedidos = datos.pedidos || [];
         db.ventaCounter = datos.ventaCounter || 0;
+        db.pedidoCounter = datos.pedidoCounter || 0;
+
+        // Fusionar productos de Firebase con los locales (que tienen fotos)
+        const productosFirebase = datos.productos || [];
+        const productosLocales = JSON.parse(localStorage.getItem('productos') || '[]');
+
+        db.productos = productosFirebase.map(pfb => {
+          const local = productosLocales.find(pl => pl.id == pfb.id);
+          return { ...pfb, foto: local?.foto || pfb.foto || null };
+        });
+
+        productosLocales.forEach(pl => {
+          if (!db.productos.find(p => p.id == pl.id)) {
+            db.productos.push(pl);
+          }
+        });
       }
       datosListos = true;
       cargarDatosFirebase();
