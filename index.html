@@ -170,7 +170,7 @@
         <button id="tab4" onclick="showTab(4)">💰 Ventas</button>
         <button id="tab5" onclick="showTab(5)">💵 Pagos</button>
         <button id="tab6" onclick="showTab(6)">📊 Historial</button>
-        <button id="tab7" onclick="showTab(7)">📋 Pedidos</button>
+        <button id="tab7" onclick="showTab(7)">📋 Pedidos</button>        
 
         <div class="sidebar-actions-wrap">
           <button
@@ -200,26 +200,11 @@
     <div id="modalContent" class="modal-box"></div>
   </div>
 
-  <!-- Firebase -->
-  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
-
+  <!-- Supabase -->
+  <script src="supabase-config.js"></script>
   <script src="app.js"></script>
 
   <script>
-    // ── Firebase ──────────────────────────────────────
-    const firebaseConfig = {
-      apiKey: "AIzaSyDhKvTuOOoPraf6fBntEaTbdIE8x2qNY90",
-      authDomain: "mi-tienda-682aa.firebaseapp.com",
-      databaseURL: "https://mi-tienda-682aa-default-rtdb.firebaseio.com",
-      projectId: "mi-tienda-682aa",
-      storageBucket: "mi-tienda-682aa.firebasestorage.app",
-      messagingSenderId: "160644788328",
-      appId: "1:160644788328:web:e2f7a1cec90b933a948bdd"
-    };
-    firebase.initializeApp(firebaseConfig);
-    window.firebaseDB = firebase.database();
-
     // ── Splash ────────────────────────────────────────
     function ocultarSplash() {
       const s = document.getElementById('splash');

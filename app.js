@@ -53,86 +53,97 @@ function guardarImagenEnCache(productoId, base64) {
 inicializarCacheImagenes();
 
 // ===============================
-// GUARDAR DB — FIX: imágenes se guardan solo en IndexedDB/localStorage, NO en Firebase
+// SUPABASE — GUARDAR Y CARGAR
 // ===============================
 
-function saveDB() {
-  // Guardar pedidos en localStorage siempre
+async function saveDB() {
+  // Siempre guardar en localStorage como backup
+  localStorage.setItem('clientes', JSON.stringify(db.clientes));
+  localStorage.setItem('productos', JSON.stringify(db.productos));
+  localStorage.setItem('ventas', JSON.stringify(db.ventas));
+  localStorage.setItem('pagos', JSON.stringify(db.pagos));
   localStorage.setItem('pedidos', JSON.stringify(db.pedidos));
+  localStorage.setItem('ventaCounter', db.ventaCounter.toString());
   localStorage.setItem('pedidoCounter', db.pedidoCounter.toString());
 
-  if (window.firebaseDB) {
-    // ── Antes de subir a Firebase, quitamos las fotos base64 de productos
-    //    para no exceder el límite (~10 MB). Las fotos se guardan en IndexedDB.
-    const productosParaFirebase = db.productos.map(p => {
-      const { foto, ...resto } = p;
-      return resto; // sin el campo foto
-    });
+  // Supabase: productos sin fotos (las fotos son demasiado grandes)
+  const productosParaCloud = db.productos.map(({ foto, ...resto }) => resto);
 
-    window.firebaseDB.ref('tienda').set({
-      clientes: db.clientes,
-      productos: productosParaFirebase,   // sin imágenes
-      ventas: db.ventas,
-      pagos: db.pagos,
-      pedidos: db.pedidos,
-      ventaCounter: db.ventaCounter,
-      pedidoCounter: db.pedidoCounter,
-      ultimaActualizacion: new Date().toISOString()
-    }).catch(error => {
-      console.error('Error guardando en Firebase:', error);
-    });
+  const datos = {
+    clientes: db.clientes,
+    productos: productosParaCloud,
+    ventas: db.ventas,
+    pagos: db.pagos,
+    pedidos: db.pedidos,
+    ventaCounter: db.ventaCounter,
+    pedidoCounter: db.pedidoCounter,
+    ultimaActualizacion: new Date().toISOString()
+  };
 
-    // Guardar el resto también en localStorage como backup
-    localStorage.setItem('clientes', JSON.stringify(db.clientes));
-    localStorage.setItem('ventas', JSON.stringify(db.ventas));
-    localStorage.setItem('pagos', JSON.stringify(db.pagos));
-    localStorage.setItem('ventaCounter', db.ventaCounter.toString());
-
-    // Guardar productos CON fotos en localStorage (solo este dispositivo)
-    localStorage.setItem('productos', JSON.stringify(db.productos));
-
-  } else {
-    // Sin Firebase: todo a localStorage
-    localStorage.setItem('clientes', JSON.stringify(db.clientes));
-    localStorage.setItem('productos', JSON.stringify(db.productos));
-    localStorage.setItem('ventas', JSON.stringify(db.ventas));
-    localStorage.setItem('pagos', JSON.stringify(db.pagos));
-    localStorage.setItem('ventaCounter', db.ventaCounter.toString());
+  try {
+    const sb = window._supabase;
+    if (!sb) return;
+    const { error } = await sb.from('tienda').upsert({ id: 'oneshop', datos });
+    if (error) console.error('Error guardando en Supabase:', error.message);
+  } catch (e) {
+    console.error('Error Supabase saveDB:', e);
   }
 }
 
-function cargarDatosFirebase() {
-  if (!window.firebaseDB) return;
-  window.firebaseDB.ref('tienda').on('value', (snapshot) => {
-    const datos = snapshot.val();
-    if (datos) {
-      db.clientes = datos.clientes || [];
-      db.ventas = datos.ventas || [];
-      db.pagos = datos.pagos || [];
-      db.pedidos = datos.pedidos || [];
-      db.ventaCounter = datos.ventaCounter || 0;
-      db.pedidoCounter = datos.pedidoCounter || 0;
-
-      // Para productos: Firebase trae los datos sin foto.
-      // Fusionamos con los productos locales (que sí tienen foto).
-      const productosFirebase = datos.productos || [];
-      const productosLocales = JSON.parse(localStorage.getItem('productos') || '[]');
-
-      db.productos = productosFirebase.map(pfb => {
-        const local = productosLocales.find(pl => pl.id == pfb.id);
-        return { ...pfb, foto: local?.foto || pfb.foto || null };
-      });
-
-      // Si hay productos locales nuevos (aún no sincronizados), conservarlos
-      productosLocales.forEach(pl => {
-        if (!db.productos.find(p => p.id == pl.id)) {
-          db.productos.push(pl);
-        }
-      });
-
-      console.log('Datos sincronizados desde Firebase');
+async function cargarDatosSupabase() {
+  try {
+    const sb = window._supabase;
+    if (!sb) return null;
+    const { data, error } = await sb.from('tienda').select('datos').eq('id', 'oneshop').single();
+    if (error) {
+      if (error.code === 'PGRST116') return null;
+      throw error;
     }
+    return data?.datos || null;
+  } catch (e) {
+    console.error('Error cargando desde Supabase:', e);
+    return null;
+  }
+}
+
+function suscribirCambiosSupabase() {
+  const sb = window._supabase;
+  if (!sb) return;
+  sb.channel('tienda-cambios')
+    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'tienda' }, (payload) => {
+      const datos = payload.new?.datos;
+      if (!datos) return;
+      aplicarDatosCloud(datos);
+      showTab(currentTab);
+      console.log('Datos actualizados en tiempo real');
+    })
+    .subscribe();
+}
+
+function aplicarDatosCloud(datos) {
+  db.clientes = datos.clientes || [];
+  db.ventas = datos.ventas || [];
+  db.pagos = datos.pagos || [];
+  db.pedidos = datos.pedidos || [];
+  db.ventaCounter = datos.ventaCounter || 0;
+  db.pedidoCounter = datos.pedidoCounter || 0;
+
+  const productosCloud = datos.productos || [];
+  const productosLocales = JSON.parse(localStorage.getItem('productos') || '[]');
+  db.productos = productosCloud.map(pc => {
+    const local = productosLocales.find(pl => pl.id == pc.id);
+    return { ...pc, foto: local?.foto || null };
   });
+  productosLocales.forEach(pl => {
+    if (!db.productos.find(p => p.id == pl.id)) db.productos.push(pl);
+  });
+
+  localStorage.setItem('clientes', JSON.stringify(db.clientes));
+  localStorage.setItem('ventas', JSON.stringify(db.ventas));
+  localStorage.setItem('pagos', JSON.stringify(db.pagos));
+  localStorage.setItem('pedidos', JSON.stringify(db.pedidos));
+  localStorage.setItem('ventaCounter', db.ventaCounter.toString());
+  localStorage.setItem('pedidoCounter', db.pedidoCounter.toString());
 }
 
 // ── Formato de número de venta: 00001 ────────────────────────────────────────
@@ -2385,46 +2396,6 @@ function cerrarModal() {
 // INIT
 // ===============================
 
-let datosListos = false;
-
-function esperarDatosFirebase() {
-  return new Promise((resolve) => {
-    if (!window.firebaseDB) { resolve(); return; }
-    window.firebaseDB.ref('tienda').once('value', (snapshot) => {
-      const datos = snapshot.val();
-      if (datos) {
-        db.clientes = datos.clientes || [];
-        db.ventas = datos.ventas || [];
-        db.pagos = datos.pagos || [];
-        db.pedidos = datos.pedidos || [];
-        db.ventaCounter = datos.ventaCounter || 0;
-        db.pedidoCounter = datos.pedidoCounter || 0;
-
-        // Fusionar productos de Firebase con los locales (que tienen fotos)
-        const productosFirebase = datos.productos || [];
-        const productosLocales = JSON.parse(localStorage.getItem('productos') || '[]');
-
-        db.productos = productosFirebase.map(pfb => {
-          const local = productosLocales.find(pl => pl.id == pfb.id);
-          return { ...pfb, foto: local?.foto || pfb.foto || null };
-        });
-
-        productosLocales.forEach(pl => {
-          if (!db.productos.find(p => p.id == pl.id)) {
-            db.productos.push(pl);
-          }
-        });
-      }
-      datosListos = true;
-      cargarDatosFirebase();
-      resolve();
-    });
-    setTimeout(() => {
-      if (!datosListos) { datosListos = true; cargarDatosFirebase(); resolve(); }
-    }, 3000);
-  });
-}
-
 async function iniciarApp() {
   const content = document.getElementById('content');
   if (content) {
@@ -2432,12 +2403,27 @@ async function iniciarApp() {
       <div class="flex items-center justify-center min-h-screen">
         <div class="text-center">
           <div class="animate-spin rounded-full h-16 w-16 border-b-2 border-purple-600 mx-auto mb-4"></div>
-          <p class="text-gray-600 font-semibold">Cargando datos...</p>
+          <p class="text-gray-600 font-semibold">Conectando con Supabase...</p>
         </div>
       </div>
     `;
   }
-  await esperarDatosFirebase();
+
+  await window._supabaseReady;
+
+  const datosCloud = await cargarDatosSupabase();
+  if (datosCloud) {
+    aplicarDatosCloud(datosCloud);
+    console.log('Datos cargados desde Supabase');
+  } else {
+    console.log('Sin datos en Supabase, usando localStorage');
+    if (db.ventas.length > 0 || db.clientes.length > 0) {
+      console.log('Migrando datos locales a Supabase...');
+      await saveDB();
+    }
+  }
+
+  suscribirCambiosSupabase();
   showTab(0);
   if (window._ocultarSplash) window._ocultarSplash();
 }
