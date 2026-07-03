@@ -117,7 +117,7 @@ function suscribirCambiosSupabase() {
       if (!datos) return;
       const localTs = localStorage.getItem('ultimaActualizacion');
       const cloudTs = datos.ultimaActualizacion || '';
-      if (localTs && cloudTs && cloudTs <= localTs) return;
+      if (!cloudTs || (localTs && cloudTs <= localTs)) return;
       aplicarDatosCloud(datos);
       showTab(currentTab);
       console.log('Datos actualizados en tiempo real');
@@ -2418,27 +2418,16 @@ async function iniciarApp() {
   await window._supabaseReady;
 
   const datosCloud = await cargarDatosSupabase();
-  if (datosCloud) {
-    const localTs = localStorage.getItem('ultimaActualizacion');
-    const cloudTs = datosCloud.ultimaActualizacion || '';
-    const localHasData = db.ventas.length > 0 || db.clientes.length > 0;
+  const localHasData = db.ventas.length > 0 || db.clientes.length > 0;
 
-    if (!localHasData) {
-      aplicarDatosCloud(datosCloud);
-      console.log('Datos cargados desde Supabase (sin datos locales)');
-    } else if (cloudTs && cloudTs >= localTs) {
-      aplicarDatosCloud(datosCloud);
-      console.log('Datos cargados desde Supabase (cloud más reciente)');
-    } else {
-      console.log('Usando datos locales (más recientes o igual que cloud)');
-      await saveDB(); // actualizar cloud con los datos locales
-    }
+  if (datosCloud && !localHasData) {
+    aplicarDatosCloud(datosCloud);
+    console.log('Datos cargados desde Supabase (sin datos locales)');
+  } else if (localHasData) {
+    console.log('Usando datos locales (siempre prioridad local)');
+    await saveDB();
   } else {
-    console.log('Sin datos en Supabase, usando localStorage');
-    if (db.ventas.length > 0 || db.clientes.length > 0) {
-      console.log('Migrando datos locales a Supabase...');
-      await saveDB();
-    }
+    console.log('Sin datos locales ni en Supabase');
   }
 
   suscribirCambiosSupabase();
