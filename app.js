@@ -57,6 +57,7 @@ inicializarCacheImagenes();
 // ===============================
 
 async function saveDB() {
+  const ahora = new Date().toISOString();
   // Siempre guardar en localStorage como backup
   localStorage.setItem('clientes', JSON.stringify(db.clientes));
   localStorage.setItem('productos', JSON.stringify(db.productos));
@@ -65,6 +66,7 @@ async function saveDB() {
   localStorage.setItem('pedidos', JSON.stringify(db.pedidos));
   localStorage.setItem('ventaCounter', db.ventaCounter.toString());
   localStorage.setItem('pedidoCounter', db.pedidoCounter.toString());
+  localStorage.setItem('ultimaActualizacion', ahora);
 
   // Supabase: productos sin fotos (las fotos son demasiado grandes)
   const productosParaCloud = db.productos.map(({ foto, ...resto }) => resto);
@@ -77,7 +79,7 @@ async function saveDB() {
     pedidos: db.pedidos,
     ventaCounter: db.ventaCounter,
     pedidoCounter: db.pedidoCounter,
-    ultimaActualizacion: new Date().toISOString()
+    ultimaActualizacion: ahora
   };
 
   try {
@@ -113,6 +115,9 @@ function suscribirCambiosSupabase() {
     .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'tienda' }, (payload) => {
       const datos = payload.new?.datos;
       if (!datos) return;
+      const localTs = localStorage.getItem('ultimaActualizacion');
+      const cloudTs = datos.ultimaActualizacion || '';
+      if (localTs && cloudTs && cloudTs <= localTs) return;
       aplicarDatosCloud(datos);
       showTab(currentTab);
       console.log('Datos actualizados en tiempo real');
@@ -144,6 +149,7 @@ function aplicarDatosCloud(datos) {
   localStorage.setItem('pedidos', JSON.stringify(db.pedidos));
   localStorage.setItem('ventaCounter', db.ventaCounter.toString());
   localStorage.setItem('pedidoCounter', db.pedidoCounter.toString());
+  localStorage.setItem('ultimaActualizacion', datos.ultimaActualizacion || new Date().toISOString());
 }
 
 // ── Formato de número de venta: 00001 ────────────────────────────────────────
@@ -2413,8 +2419,20 @@ async function iniciarApp() {
 
   const datosCloud = await cargarDatosSupabase();
   if (datosCloud) {
-    aplicarDatosCloud(datosCloud);
-    console.log('Datos cargados desde Supabase');
+    const localTs = localStorage.getItem('ultimaActualizacion');
+    const cloudTs = datosCloud.ultimaActualizacion || '';
+    const localHasData = db.ventas.length > 0 || db.clientes.length > 0;
+
+    if (!localHasData) {
+      aplicarDatosCloud(datosCloud);
+      console.log('Datos cargados desde Supabase (sin datos locales)');
+    } else if (cloudTs && cloudTs >= localTs) {
+      aplicarDatosCloud(datosCloud);
+      console.log('Datos cargados desde Supabase (cloud más reciente)');
+    } else {
+      console.log('Usando datos locales (más recientes o igual que cloud)');
+      await saveDB(); // actualizar cloud con los datos locales
+    }
   } else {
     console.log('Sin datos en Supabase, usando localStorage');
     if (db.ventas.length > 0 || db.clientes.length > 0) {
