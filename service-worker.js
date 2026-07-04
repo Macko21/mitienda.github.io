@@ -39,14 +39,18 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  // Firebase y CDNs → siempre red
+  // Solo cachear GET (las APIs POST no se pueden cachear)
+  if (event.request.method !== 'GET') return;
+
+  // CDNs y APIs externas → siempre red
   if (
     event.request.url.includes('firebaseio.com') ||
     event.request.url.includes('firebase') ||
     event.request.url.includes('googleapis') ||
     event.request.url.includes('cdn.tailwindcss.com') ||
     event.request.url.includes('cdnjs.cloudflare.com') ||
-    event.request.url.includes('cdn.jsdelivr.net')
+    event.request.url.includes('cdn.jsdelivr.net') ||
+    event.request.url.includes('supabase.co')
   ) {
     return;
   }
