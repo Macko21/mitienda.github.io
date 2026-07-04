@@ -227,11 +227,7 @@ function dashboardHTML() {
       });
     }
   });
-  todosLosPagos.sort((a, b) => {
-    const ta = typeof a.fecha === 'string' && a.fecha.includes('/') ? a.fecha : new Date(a.fecha).getTime();
-    const tb = typeof b.fecha === 'string' && b.fecha.includes('/') ? b.fecha : new Date(b.fecha).getTime();
-    return String(tb).localeCompare(String(ta));
-  });
+  todosLosPagos.sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
   const ultPagos = todosLosPagos.slice(0, 5);
 
   const fmtFecha = f => {
@@ -774,6 +770,7 @@ async function exportarCatalogoPDF() {
 
   const script = document.createElement('script');
   script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';
+  script.onerror = () => { Swal.fire({ icon: 'error', title: 'Error al cargar la librería', text: 'Verificá tu conexión a internet' }); };
   script.onload = function () {
     let html = `
       <div style="font-family: Arial, sans-serif; padding: 15px;">
@@ -1002,13 +999,15 @@ function finalizarVenta() {
       subtotal = precioUnitario * cuotasSelect * item.cantidad;
     }
     total += subtotal;
-    itemsVenta.push({ nombre: item.nombre, cantidad: item.cantidad, precio: precioUnitario, subtotal });
+    itemsVenta.push({ id: item.id, nombre: item.nombre, cantidad: item.cantidad, precio: precioUnitario, subtotal });
   });
 
   const saldoRestante = Math.max(0, total - entrega);
   const valorCuota = cuotasTotalesReales > 1 ? Math.ceil(saldoRestante / cuotasTotalesReales) : saldoRestante;
 
   db.ventaCounter++;
+  const historial = [];
+  if (entrega > 0) historial.push({ fecha: new Date().toISOString(), monto: entrega });
   const venta = {
     id: db.ventaCounter,
     fecha: new Date().toLocaleDateString('es-AR'),
@@ -1018,7 +1017,7 @@ function finalizarVenta() {
     cuotasTotales: cuotasTotalesReales,
     cuotasPagadas: cuotasSelect === 1 ? 1 : 0,
     saldo: saldoRestante, pagado: entrega,
-    esQuincenal
+    esQuincenal, historialPagos: historial
   };
 
   db.ventas.push(venta);
@@ -1107,15 +1106,15 @@ function pagosHTML() {
             </div>
             ${(() => {
               let pagos = [];
+              if (v.entrega > 0) pagos.push({ monto: v.entrega, fecha: v.fecha });
               if (v.historialPagos?.length) {
-                pagos = v.historialPagos;
-              } else if (v.pagado > 0) {
-                pagos = [{ monto: v.pagado, fecha: v.fecha }];
-              } else if (v.entrega > 0) {
-                pagos = [{ monto: v.entrega, fecha: v.fecha }];
-              }
-              if (!pagos.length) {
-                pagos = [{ monto: v.total, fecha: v.fecha }];
+                v.historialPagos.forEach(p => {
+                  if (!pagos.find(x => x.monto === p.monto && x.fecha === p.fecha)) pagos.push(p);
+                });
+              } else if (!pagos.length && v.pagado > 0) {
+                pagos.push({ monto: v.pagado, fecha: v.fecha });
+              } else if (!pagos.length) {
+                pagos.push({ monto: v.total, fecha: v.fecha });
               }
               const fmtFecha = f => {
                 if (!f) return '';
@@ -1317,7 +1316,7 @@ function eliminarVentaPendiente(id) {
       const venta = db.ventas.find(v => v.id == id);
       if (!venta) return;
       venta.items.forEach(item => {
-        const producto = db.productos.find(p => p.nombre === item.nombre);
+        const producto = db.productos.find(p => p.id == item.id) || db.productos.find(p => p.nombre === item.nombre);
         if (producto) producto.stock += item.cantidad;
       });
       const cliente = db.clientes.find(c => c.nombre === venta.clienteNombre);
@@ -1401,12 +1400,14 @@ function buildComprobanteHTML(venta, monto) {
 }
 
 function descargarPDFComprobante(venta, monto) {
-  const cargarLib = () => new Promise(resolve => {
+  const cargarLib = () => new Promise((resolve, reject) => {
     if (window.jspdf) { resolve(); return; }
     const s = document.createElement('script');
     s.src = 'https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js';
     s.onload = resolve;
+    s.onerror = () => reject(new Error('No se pudo cargar jsPDF'));
     document.head.appendChild(s);
+    setTimeout(() => reject(new Error('Timeout cargando jsPDF')), 8000);
   });
 
   cargarLib().then(() => {
@@ -1588,6 +1589,9 @@ function descargarPDFComprobante(venta, monto) {
 
     const nombreArchivo = `Comprobante-${fmtId(venta.id)}-${venta.clienteNombre.replace(/\s+/g, '-')}.pdf`;
     doc.save(nombreArchivo);
+  }).catch(e => {
+    console.error('Error generando PDF:', e);
+    Swal.fire({ icon: 'error', title: 'Error', text: 'No se pudo generar el PDF. Verificá tu conexión.' });
   });
 }
 
@@ -1678,12 +1682,15 @@ function historialVentasHTML() {
             </div>
             ${(() => {
               let pagos = [];
+              if (v.entrega > 0) pagos.push({ monto: v.entrega, fecha: v.fecha });
               if (v.historialPagos?.length) {
-                pagos = v.historialPagos;
-              } else if (v.pagado > 0) {
-                pagos = [{ monto: v.pagado, fecha: v.fecha }];
-              } else {
-                pagos = [{ monto: v.total, fecha: v.fecha }];
+                v.historialPagos.forEach(p => {
+                  if (!pagos.find(x => x.monto === p.monto && x.fecha === p.fecha)) pagos.push(p);
+                });
+              } else if (!pagos.length && v.pagado > 0) {
+                pagos.push({ monto: v.pagado, fecha: v.fecha });
+              } else if (!pagos.length) {
+                pagos.push({ monto: v.total, fecha: v.fecha });
               }
               const fmtFecha = f => {
                 if (!f) return '';
@@ -2160,7 +2167,7 @@ function borrarPago(ventaId) {
       const venta = db.ventas.find(v => v.id == ventaId);
       if (venta) {
         venta.items.forEach(item => {
-          const producto = db.productos.find(p => p.nombre === item.nombre);
+          const producto = db.productos.find(p => p.id == item.id) || db.productos.find(p => p.nombre === item.nombre);
           if (producto) producto.stock += item.cantidad;
         });
         const cliente = db.clientes.find(c => c.nombre === venta.clienteNombre);
@@ -2253,11 +2260,13 @@ function cargarDatos() {
 
 // ── Reporte de ventas en PDF ──────────────────────────────────────────────────
 function descargarReporteVentas() {
-  const cargarLib = () => new Promise(resolve => {
+  const cargarLib = () => new Promise((resolve, reject) => {
     if (window.jspdf) { resolve(); return; }
     const s = document.createElement('script');
     s.src = 'https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js';
-    s.onload = resolve; document.head.appendChild(s);
+    s.onload = resolve; s.onerror = () => reject(new Error('No se pudo cargar jsPDF'));
+    document.head.appendChild(s);
+    setTimeout(() => reject(new Error('Timeout cargando jsPDF')), 8000);
   });
   cargarLib().then(() => {
     const { jsPDF } = window.jspdf;
@@ -2316,16 +2325,21 @@ function descargarReporteVentas() {
     doc.text('$'+totalPend.toLocaleString(), M+145, y+3);
 
     doc.save(`Reporte-Ventas-${new Date().toISOString().slice(0,10)}.pdf`);
+  }).catch(e => {
+    console.error('Error generando reporte:', e);
+    Swal.fire({ icon: 'error', title: 'Error', text: 'No se pudo generar el reporte. Verificá tu conexión.' });
   });
 }
 
 // ── Reporte de pagos en PDF ───────────────────────────────────────────────────
 function descargarReportePagos() {
-  const cargarLib = () => new Promise(resolve => {
+  const cargarLib = () => new Promise((resolve, reject) => {
     if (window.jspdf) { resolve(); return; }
     const s = document.createElement('script');
     s.src = 'https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js';
-    s.onload = resolve; document.head.appendChild(s);
+    s.onload = resolve; s.onerror = () => reject(new Error('No se pudo cargar jsPDF'));
+    document.head.appendChild(s);
+    setTimeout(() => reject(new Error('Timeout cargando jsPDF')), 8000);
   });
   cargarLib().then(() => {
     const { jsPDF } = window.jspdf;
@@ -2387,6 +2401,9 @@ function descargarReportePagos() {
     doc.text('$'+totalCobrado.toLocaleString(), M+50, y+3);
 
     doc.save(`Reporte-Pagos-${new Date().toISOString().slice(0,10)}.pdf`);
+  }).catch(e => {
+    console.error('Error generando reporte:', e);
+    Swal.fire({ icon: 'error', title: 'Error', text: 'No se pudo generar el reporte. Verificá tu conexión.' });
   });
 }
 
