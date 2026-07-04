@@ -1006,8 +1006,6 @@ function finalizarVenta() {
   const valorCuota = cuotasTotalesReales > 1 ? Math.ceil(saldoRestante / cuotasTotalesReales) : saldoRestante;
 
   db.ventaCounter++;
-  const historial = [];
-  if (entrega > 0) historial.push({ fecha: new Date().toISOString(), monto: entrega });
   const venta = {
     id: db.ventaCounter,
     fecha: new Date().toLocaleDateString('es-AR'),
@@ -1017,7 +1015,7 @@ function finalizarVenta() {
     cuotasTotales: cuotasTotalesReales,
     cuotasPagadas: cuotasSelect === 1 ? 1 : 0,
     saldo: saldoRestante, pagado: entrega,
-    esQuincenal, historialPagos: historial
+    esQuincenal, historialPagos: []
   };
 
   db.ventas.push(venta);
@@ -2256,6 +2254,35 @@ function cargarDatos() {
     reader.readAsText(file);
   };
   input.click();
+}
+
+// ── Recalcular saldos desde historialPagos ────────────────────────────────────
+function recalcularSaldos() {
+  Swal.fire({
+    title: '¿Recalcular saldos?',
+    html: `<p>Se va a recalcular el <b>saldo</b> de cada venta sumando los montos de <b>historialPagos</b>.</p>
+           <p style="color:#d97706;margin-top:8px;">⚠️ Hacé una copia de seguridad antes (botón "Descargar datos").</p>`,
+    icon: 'warning', showCancelButton: true, confirmButtonText: 'Sí, recalcular', cancelButtonText: 'Cancelar',
+    confirmButtonColor: '#d97706'
+  }).then(r => {
+    if (!r.isConfirmed) return;
+    let corregidas = 0;
+    db.ventas.forEach(v => {
+      let pagos = [];
+      if (v.entrega > 0) pagos.push(v.entrega);
+      if (v.historialPagos?.length) pagos.push(...v.historialPagos.map(p => p.monto));
+      if (!pagos.length) pagos.push(0);
+      const totalPagado = pagos.reduce((s, m) => s + m, 0);
+      const saldoReal = Math.max(0, (v.total || 0) - totalPagado);
+      if (v.saldo !== saldoReal) {
+        v.saldo = saldoReal;
+        v.pagado = totalPagado;
+        corregidas++;
+      }
+    });
+    saveDB();
+    Swal.fire({ icon: 'success', title: 'Listo', text: `${corregidas} ventas corregidas. Recargá la página.`, confirmButtonText: 'OK' });
+  });
 }
 
 // ── Reporte de ventas en PDF ──────────────────────────────────────────────────
