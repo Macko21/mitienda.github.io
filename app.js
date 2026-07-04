@@ -2268,15 +2268,23 @@ function recalcularSaldos() {
     if (!r.isConfirmed) return;
     let corregidas = 0;
     db.ventas.forEach(v => {
-      let pagos = [];
-      if (v.entrega > 0) pagos.push(v.entrega);
-      if (v.historialPagos?.length) pagos.push(...v.historialPagos.map(p => p.monto));
-      if (!pagos.length) pagos.push(0);
-      const totalPagado = pagos.reduce((s, m) => s + m, 0);
-      const saldoReal = Math.max(0, (v.total || 0) - totalPagado);
+      let totalPagado = 0;
+      if (v.entrega > 0) totalPagado += v.entrega;
+      if (v.historialPagos?.length) v.historialPagos.forEach(p => { totalPagado += p.monto; });
+      let saldoReal, pagadoReal;
+      if (totalPagado > 0) {
+        saldoReal = Math.max(0, (v.total || 0) - totalPagado);
+        pagadoReal = totalPagado;
+      } else if (v.cuotasTotales === 1) {
+        saldoReal = 0;
+        pagadoReal = v.total || 0;
+      } else {
+        saldoReal = v.total || 0;
+        pagadoReal = 0;
+      }
       if (v.saldo !== saldoReal) {
         v.saldo = saldoReal;
-        v.pagado = totalPagado;
+        v.pagado = pagadoReal;
         corregidas++;
       }
     });
