@@ -144,6 +144,7 @@ function aplicarDatosCloud(datos) {
   });
 
   localStorage.setItem('clientes', JSON.stringify(db.clientes));
+  localStorage.setItem('productos', JSON.stringify(db.productos));
   localStorage.setItem('ventas', JSON.stringify(db.ventas));
   localStorage.setItem('pagos', JSON.stringify(db.pagos));
   localStorage.setItem('pedidos', JSON.stringify(db.pedidos));
@@ -2470,7 +2471,7 @@ async function iniciarApp() {
   await window._supabaseReady;
 
   const datosCloud = await cargarDatosSupabase();
-  const localHasData = db.ventas.length > 0 || db.clientes.length > 0;
+  const localHasData = db.productos.length > 0 || db.clientes.length > 0 || db.ventas.length > 0;
 
   if (datosCloud && !localHasData) {
     aplicarDatosCloud(datosCloud);
